@@ -1,25 +1,28 @@
-[project]
-name = "myproject"
-version = "0.1.0"
-description = "Python project with Nix-managed dependencies"
-requires-python = ">=3.12"
-# Dependencies are managed by Nix — add them to `projectDeps` in flake.nix,
-# not here. This list stays empty so pip/uv never resolve anything.
-dependencies = []
-
-[project.scripts]
-myproject = "myproject.main:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[project]
+name = "reprompt"
+version = "0.1.0"
+description = "MCP tool proxy that intercepts, rewrites, and reports tool calls"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=3.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+reprompt = "reprompt.cli:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/myproject"]
+packages = ["src/reprompt"]
 
-[tool.black]
-line-length = 88
-
-[tool.mypy]
-strict = true
-files = ["src"]
+# fastmcp is provided by Nix (nixpkgs python3Packages.fastmcp) at run time and
+# is not always importable from the interpreter that runs mypy. The override
+# only applies when the package cannot be found; when fastmcp is on the mypy
+# search path, its real types are used.
+[[tool.mypy.overrides]]
+module = ["fastmcp", "fastmcp.*"]
+ignore_missing_imports = true

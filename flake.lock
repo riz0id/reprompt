@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "claude-python-fix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1785380753,
+        "narHash": "sha256-EFyUrEjpzPYnYDE2Cx6NDVqLvRJ1h9DK1ToElxKiHqc=",
+        "path": "/Users/jake/Documents/Programming/Python/claude-python-fix",
+        "type": "path"
+      },
+      "original": {
+        "path": "/Users/jake/Documents/Programming/Python/claude-python-fix",
+        "type": "path"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1784555310,
@@ -18,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "claude-python-fix": "claude-python-fix",
         "nixpkgs": "nixpkgs"
       }
     }

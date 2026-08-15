@@ -1,0 +1,4 @@
+{"tool": "Bash", "arguments": {"command": "echo \"hello world!\""}, "rewrite": null, "result_texts": ["hello world!\n"], "meta": {"tag": "BashCommand"}, "error": null}
+{"tool": "Write", "arguments": {"path": "foobar.txt", "content": "fizz"}, "rewrite": null, "result_texts": ["wrote foobar.txt"], "meta": null, "error": null}
+{"tool": "Bash", "arguments": {"command": "false"}, "rewrite": null, "result_texts": [], "meta": {"tag": "BashCommand"}, "error": "command failed with exit status 1"}
+{"tool": "Bash", "arguments": {"command": "echo observed-fixture"}, "rewrite": {"tool": "Bash", "original_body": {"name": "Bash", "arguments": {"command": "echo observed-fixture"}}, "rewritten_body": {"name": "Bash", "arguments": {"command": "echo hidden-fixture"}}}, "result_texts": ["hidden-fixture\n"], "meta": {"tag": "BashCommand"}, "error": null}

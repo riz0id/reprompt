@@ -15,6 +15,22 @@
 #                              (default ~/.cache/reprompt/linux-builder).
 #   REPROMPT_BUILDER_SSH_PORT  Host TCP port for the builder's SSH
 #                              (default: first free port from 31122).
+#   REPROMPT_GUEST_ATTR        Guest closure flake attribute
+#                              (default integrationGuest).
+#   REPROMPT_CHECK_ATTR        Test driver check attribute
+#                              (default integration).
+#   REPROMPT_ASSERT            Host-side assertion script, run with the
+#                              artifact directory as its argument
+#                              (default tests/assert_meta_recall.sh).
+#   REPROMPT_REWRITE_HOOK      Optional rewrite hook module; when set, it is
+#                              installed as rewrite_hook.py, the generated
+#                              config gains a rewrite entry, and a per-run
+#                              observed number is generated and exported as
+#                              REPROMPT_OBSERVED for the test driver.
+#   REPROMPT_REWRITE_TRANSFORMER  Racket transformer installed alongside the
+#                              rewrite hook (required with it).
+#   REPROMPT_RACKET            Racket binary the rewrite hook invokes
+#                              (consumed by the hook, not by this script).
 #
 # On a Darwin host the Linux guest closure of the VM test cannot be built
 # locally. The sequence here (design.md section 8):
@@ -48,6 +64,8 @@ nix_cmd=(nix --extra-experimental-features "nix-command flakes")
 script_dir=$(cd "$(dirname "$0")" && pwd)
 flake="${REPROMPT_FLAKE:-$(dirname "$script_dir")}"
 host_system="${REPROMPT_HOST_SYSTEM:-$("${nix_cmd[@]}" eval --impure --raw --expr builtins.currentSystem)}"
+guest_attr="${REPROMPT_GUEST_ATTR:-integrationGuest}"
+check_attr="${REPROMPT_CHECK_ATTR:-integration}"
 
 case "$host_system" in
   *-darwin) needs_builder=1 ;;
@@ -212,7 +230,7 @@ REPROMPT_BUILDER_SSH_PORT to a free port"
     "${nix_cmd[@]}" build \
       --store "$builder_store" --eval-store auto \
       --no-link --print-out-paths \
-      "$flake#integrationGuest.$host_system"
+      "$flake#$guest_attr.$host_system"
   )
   [ -n "$guest_path" ] || die "the remote build produced no output path"
   log "guest closure built: $guest_path"
@@ -241,7 +259,7 @@ fi
 log "building the test driver"
 driver_path=$(
   "${nix_cmd[@]}" build --no-link --print-out-paths \
-    "$flake#checks.$host_system.integration"
+    "$flake#checks.$host_system.$check_attr"
 )
 
 # ---------------------------------------------------------------------------
@@ -263,6 +281,17 @@ it and retry."
 
 artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/reprompt-test.XXXXXX")
 mkdir -p "$artifact_dir/work"
+
+# Rewrite tests get a per-run observed number. It is exported so the test
+# driver (started later in this environment) can inject it into the guest;
+# the file copy is for the host-side assertions.
+if [ -n "${REPROMPT_REWRITE_HOOK:-}" ]; then
+  observed=$(od -An -N4 -tu4 /dev/urandom | tr -cd '0-9')
+  [ -n "$observed" ] || die "failed to generate the observed number"
+  printf '%s' "$observed" >"$artifact_dir/observed"
+  export REPROMPT_OBSERVED="$observed"
+  log "observed number for this run: $observed"
+fi
 install -m 644 "$REPROMPT_META_HOOK" "$artifact_dir/meta_hook.py"
 cat >"$artifact_dir/reprompt.yaml" <<EOF
 listen:
@@ -275,6 +304,17 @@ backends:
 meta: "meta_hook:attach_meta"
 record: "$artifact_dir/record.jsonl"
 EOF
+
+# Optional rewrite hook: the hook and its Racket transformer live side by
+# side in the artifact dir (the hook resolves the transformer relative to
+# its own file), and the generated config gains the rewrite entry.
+if [ -n "${REPROMPT_REWRITE_HOOK:-}" ]; then
+  [ -n "${REPROMPT_REWRITE_TRANSFORMER:-}" ] ||
+    die "REPROMPT_REWRITE_TRANSFORMER is not set"
+  install -m 644 "$REPROMPT_REWRITE_HOOK" "$artifact_dir/rewrite_hook.py"
+  install -m 644 "$REPROMPT_REWRITE_TRANSFORMER" "$artifact_dir/transform_touch.rkt"
+  printf 'rewrite: "rewrite_hook:rewrite"\n' >>"$artifact_dir/reprompt.yaml"
+fi
 
 proxy_pid=""
 stop_proxy() {
@@ -314,44 +354,15 @@ stop_proxy
 trap - EXIT INT TERM
 
 # ---------------------------------------------------------------------------
-# Pass/fail, entirely on host artifacts.
+# Pass/fail, entirely on host artifacts. The assertion script is
+# test-specific; each flake app exports REPROMPT_ASSERT, and the default
+# reproduces the original test's assertions for direct invocations.
 
-hello_file="$artifact_dir/work/hello_world.txt"
-recalled_file="$artifact_dir/work/recalled.txt"
-record_file="$artifact_dir/record.jsonl"
-
-[ -f "$hello_file" ] || die "hello_world.txt was not written; artifacts kept \
-in $artifact_dir"
-hello_content=$(cat "$hello_file")
-[ "$hello_content" = "hello world!" ] || die "hello_world.txt content is \
-'$hello_content', expected 'hello world!'; artifacts kept in $artifact_dir"
-log "hello_world.txt has the expected content"
-
-[ -f "$record_file" ] || die "the proxy recorded no calls; artifacts kept in \
-$artifact_dir"
-number=$(jq -r 'select(.meta.number != null) | .meta.number' "$record_file" \
-  | sort -u)
-[ -n "$number" ] || die "no random number appears in the record; artifacts \
-kept in $artifact_dir"
-case "$number" in
-  *$'\n'*) die "more than one random number appears in the record; artifacts \
-kept in $artifact_dir" ;;
-esac
-
-if [ -f "$recalled_file" ] && grep -qF -- "$number" "$recalled_file"; then
-  log "PASS: the model recalled the random number ($number) from the MCP \
-tool response (checked after the VM closed)"
+assert_script="${REPROMPT_ASSERT:-$script_dir/assert_meta_recall.sh}"
+log "running host-side assertions: $assert_script"
+if bash "$assert_script" "$artifact_dir"; then
+  log "PASS"
   rm -rf "$artifact_dir"
 else
-  log "recorded calls:"
-  cat "$record_file" >&2
-  if [ -f "$recalled_file" ]; then
-    log "recalled.txt content:"
-    cat "$recalled_file" >&2
-    printf '\n' >&2
-  else
-    log "recalled.txt was not written"
-  fi
-  die "FAIL: the model did not recall the random number; artifacts kept in \
-$artifact_dir"
+  die "FAIL: assertions failed; artifacts kept in $artifact_dir"
 fi

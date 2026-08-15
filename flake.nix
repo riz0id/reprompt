@@ -66,16 +66,40 @@
       ];
 
       integrationTest =
-        system:
-        import ./tests/integration.nix {
-          pkgs = nixpkgs.legacyPackages.${system};
-          inherit nixpkgs mkReprompt;
-        };
+        system: overrides:
+        import ./tests/integration.nix (
+          {
+            pkgs = nixpkgs.legacyPackages.${system};
+            inherit nixpkgs mkReprompt;
+          }
+          // overrides
+        );
+
+      # The bash-metadata variant of the VM test: same guest stack, but the
+      # agent prompts for a Bash command and a Write, and the host proxy
+      # tags only the Bash call (tests/meta_hook_bash.py).
+      bashTestArgs = {
+        name = "reprompt-integration-bash";
+        agentScript = ./tests/agent_bash.py;
+      };
+
+      # The rewrite variant: the agent asks for `touch <observed>`, and the
+      # host proxy's Racket/Rash syntax transformer rewrites the command to
+      # `touch <hidden>` before execution.
+      rewriteTestArgs = {
+        name = "reprompt-integration-rewrite";
+        agentScript = ./tests/agent_rewrite.py;
+      };
+
+      # Racket with the rash shell language vendored offline; used to
+      # execute the #lang rash modules that `reprompt lift` generates.
+      mkRacketWithRash = pkgs: pkgs.callPackage ./nix/racket-with-rash.nix { };
     in
     {
       packages = forAllSystems (pkgs: rec {
         default = reprompt;
         reprompt = mkReprompt pkgs;
+        racket-with-rash = mkRacketWithRash pkgs;
       });
 
       apps = forAllSystems (
@@ -90,73 +114,213 @@
             program = "${self.packages.${system}.reprompt}/bin/reprompt";
           };
         }
-        // nixpkgs.lib.optionalAttrs (builtins.elem system testSystems) {
-          # One command runs the full test:
-          #   nix run .#integration-test
-          # No token and no API access: the model (Qwen3-4B-Instruct) runs
-          # locally inside the guest. The runner still needs to run outside
-          # the Nix sandbox (host proxy, builder VM, QEMU).
-          #
-          # On Darwin the app wraps tests/run.sh, which supplies its own
-          # Linux builder VM: it remote-builds the guest closure
-          # (.#integrationGuest) over user-owned SSH, imports it into the
-          # local store, then builds and runs the driver locally. No sudo,
-          # no /etc files, no separate builder terminal, no Nix-daemon
-          # builder configuration. On Linux hosts the driver runs directly.
-          integration-test =
-            if pkgs.stdenv.hostPlatform.isDarwin then
-              let
-                # The stock nixpkgs builder VM, minus its baked host port
-                # forward (tcp :31022): QEMU aborts at startup when another
-                # builder VM already holds that port. The change is
-                # host-side only — the Linux guest closure is unchanged and
-                # stays substitutable from the public cache — and
-                # tests/run.sh supplies the forward itself on a free port
-                # through QEMU_NET_OPTS.
-                linuxBuilder = pkgs.darwin.linux-builder.override {
-                  modules = [ { virtualisation.forwardPorts = nixpkgs.lib.mkForce [ ]; } ];
-                };
-              in
+        // nixpkgs.lib.optionalAttrs (builtins.elem system testSystems) (
+          let
+            isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+
+            # The stock nixpkgs builder VM, minus its baked host port
+            # forward (tcp :31022): QEMU aborts at startup when another
+            # builder VM already holds that port. The change is
+            # host-side only — the Linux guest closure is unchanged and
+            # stays substitutable from the public cache — and
+            # tests/run.sh supplies the forward itself on a free port
+            # through QEMU_NET_OPTS.
+            linuxBuilder = pkgs.darwin.linux-builder.override {
+              modules = [ { virtualisation.forwardPorts = nixpkgs.lib.mkForce [ ]; } ];
+            };
+
+            # One Darwin app per integration test: the wrapper only wires
+            # store paths and the per-test attribute names, backend, meta
+            # hook, and assertion script that tests/run.sh consumes.
+            mkDarwinTestApp =
+              {
+                checkAttr,
+                guestAttr,
+                backend,
+                metaHook,
+                assertScript,
+                extraRuntimeInputs ? [ ],
+                rewriteHook ? null,
+                rewriteTransformer ? null,
+                racket ? null,
+              }:
               {
                 type = "app";
                 program = nixpkgs.lib.getExe (
                   pkgs.writeShellApplication {
-                    name = "reprompt-integration-test";
+                    name = "reprompt-${checkAttr}-test";
                     runtimeInputs = [
                       pkgs.nix
                       pkgs.openssh
                       pkgs.coreutils
                       pkgs.gnugrep
                       pkgs.jq
-                    ];
-                    # The wrapper only wires store paths.
+                    ]
+                    ++ extraRuntimeInputs;
                     text = ''
                       export REPROMPT_FLAKE=${self}
                       export REPROMPT_HOST_SYSTEM=${system}
                       export REPROMPT_RUN_BUILDER=${nixpkgs.lib.getExe linuxBuilder.run-builder}
                       export REPROMPT_BIN=${nixpkgs.lib.getExe (mkReprompt pkgs)}
                       export REPROMPT_BACKEND_PYTHON=${pkgs.python3.withPackages (ps: [ ps.fastmcp ])}/bin/python
-                      export REPROMPT_BACKEND=${self}/tests/backend.py
-                      export REPROMPT_META_HOOK=${self}/tests/meta_hook.py
+                      export REPROMPT_BACKEND=${self}/tests/${backend}
+                      export REPROMPT_META_HOOK=${self}/tests/${metaHook}
+                      export REPROMPT_GUEST_ATTR=${guestAttr}
+                      export REPROMPT_CHECK_ATTR=${checkAttr}
+                      export REPROMPT_ASSERT=${self}/tests/${assertScript}
+                      ${nixpkgs.lib.optionalString (
+                        rewriteHook != null
+                      ) "export REPROMPT_REWRITE_HOOK=${self}/tests/${rewriteHook}"}
+                      ${nixpkgs.lib.optionalString (
+                        rewriteTransformer != null
+                      ) "export REPROMPT_REWRITE_TRANSFORMER=${self}/tests/${rewriteTransformer}"}
+                      ${nixpkgs.lib.optionalString (racket != null) "export REPROMPT_RACKET=${racket}/bin/racket"}
                       exec ${pkgs.runtimeShell} ${self}/tests/run.sh
                     '';
                   }
                 );
-              }
-            else
-              {
-                type = "app";
-                program = "${(integrationTest system).driver}/bin/nixos-test-driver";
               };
-        }
+          in
+          {
+            # One command runs the full test:
+            #   nix run .#integration-test
+            # No token and no API access: the model (Qwen3-4B-Instruct) runs
+            # locally inside the guest. The runner still needs to run outside
+            # the Nix sandbox (host proxy, builder VM, QEMU).
+            #
+            # On Darwin the app wraps tests/run.sh, which supplies its own
+            # Linux builder VM: it remote-builds the guest closure
+            # (.#integrationGuest) over user-owned SSH, imports it into the
+            # local store, then builds and runs the driver locally. No sudo,
+            # no /etc files, no separate builder terminal, no Nix-daemon
+            # builder configuration. On Linux hosts the driver runs directly.
+            integration-test =
+              if isDarwin then
+                mkDarwinTestApp {
+                  checkAttr = "integration";
+                  guestAttr = "integrationGuest";
+                  backend = "backend.py";
+                  metaHook = "meta_hook.py";
+                  assertScript = "assert_meta_recall.sh";
+                }
+              else
+                {
+                  type = "app";
+                  program = "${(integrationTest system { }).driver}/bin/nixos-test-driver";
+                };
+
+            # Bash-metadata variant: the agent runs an echo command through a
+            # Bash tool and writes foobar.txt through the Write tool; the
+            # meta hook tags only the Bash call (by tool name, never by
+            # command string) and the assertions check the tag's exclusivity.
+            integration-test-bash =
+              if isDarwin then
+                mkDarwinTestApp {
+                  checkAttr = "integration-bash";
+                  guestAttr = "integrationGuestBash";
+                  backend = "backend_bash.py";
+                  metaHook = "meta_hook_bash.py";
+                  assertScript = "assert_bash_lift.sh";
+                  extraRuntimeInputs = [ (mkRacketWithRash pkgs) ];
+                }
+              else
+                {
+                  type = "app";
+                  program = "${(integrationTest system bashTestArgs).driver}/bin/nixos-test-driver";
+                };
+
+            # Rewrite variant: the host proxy loads a Python rewrite hook
+            # that delegates to a Racket/Rash syntax transformer; the
+            # assertions prove the executed command was the rewritten one
+            # and that `reprompt lift` replays it.
+            integration-test-rewrite =
+              if isDarwin then
+                mkDarwinTestApp {
+                  checkAttr = "integration-rewrite";
+                  guestAttr = "integrationGuestRewrite";
+                  backend = "backend_bash.py";
+                  metaHook = "meta_hook_bash.py";
+                  assertScript = "assert_rewrite.sh";
+                  extraRuntimeInputs = [ (mkRacketWithRash pkgs) ];
+                  rewriteHook = "rewrite_hook_rash.py";
+                  rewriteTransformer = "transform_touch.rkt";
+                  racket = mkRacketWithRash pkgs;
+                }
+              else
+                {
+                  type = "app";
+                  program = "${(integrationTest system rewriteTestArgs).driver}/bin/nixos-test-driver";
+                };
+          }
+        )
       );
 
       # Build-only: the guest closure and the test driver. The test itself
       # needs network access (api.anthropic.com), so it cannot run in the
       # pure build sandbox; run it with `nix run .#integration-test`.
-      checks = nixpkgs.lib.genAttrs testSystems (system: {
-        integration = (integrationTest system).driver;
-      });
+      checks = nixpkgs.lib.genAttrs testSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          integration = (integrationTest system { }).driver;
+          integration-bash = (integrationTest system bashTestArgs).driver;
+          integration-rewrite = (integrationTest system rewriteTestArgs).driver;
+
+          # Hermetic end-to-end check of `reprompt lift`: a committed
+          # fixture record is lifted and the generated #lang rash module
+          # is executed for real (rash is vendored, so no network). Also
+          # the unit test for lift.py semantics: only the successful Bash
+          # entry is lifted, the Write and failed-Bash entries are not.
+          lift =
+            pkgs.runCommand "reprompt-lift-check"
+              {
+                nativeBuildInputs = [
+                  (mkReprompt pkgs)
+                  (mkRacketWithRash pkgs)
+                  pkgs.coreutils
+                  pkgs.gnugrep
+                ];
+              }
+              ''
+                export HOME=$TMPDIR
+                # Copy under the canonical name so the module header line
+                # is deterministic.
+                cp ${./tests/fixtures/record.jsonl} record.jsonl
+                reprompt lift record.jsonl -o lifted.rkt
+
+                printf '%s\n' '#lang rash' \
+                  ';; lifted by reprompt from record.jsonl' \
+                  'echo "hello world!"' \
+                  'echo hidden-fixture' > expected.rkt
+                diff -u expected.rkt lifted.rkt
+
+                run_output=$(racket lifted.rkt)
+                case "$run_output" in
+                  *"hello world!"*) : ;;
+                  *)
+                    echo "racket output lacks 'hello world!': $run_output" >&2
+                    exit 1
+                    ;;
+                esac
+                case "$run_output" in
+                  *"hidden-fixture"*) : ;;
+                  *)
+                    echo "racket output lacks 'hidden-fixture': $run_output" >&2
+                    exit 1
+                    ;;
+                esac
+                case "$run_output" in
+                  *"observed-fixture"*)
+                    echo "the original observed-fixture command leaked: $run_output" >&2
+                    exit 1
+                    ;;
+                esac
+                touch $out
+              '';
+        }
+      );
 
       # Internal output for tests/run.sh (not part of the standard flake
       # schema): the Linux guest system closure of the VM test — the only
@@ -165,7 +329,18 @@
       # imports the result, after which the test driver
       # (checks.<hostSystem>.integration) builds locally on Darwin.
       integrationGuest = nixpkgs.lib.genAttrs testSystems (
-        system: (integrationTest system).nodes.machine.system.build.toplevel
+        system: (integrationTest system { }).nodes.machine.system.build.toplevel
+      );
+
+      # Guest closure of the bash-metadata test. Same shape as
+      # integrationGuest; the model derivation is shared between the two.
+      integrationGuestBash = nixpkgs.lib.genAttrs testSystems (
+        system: (integrationTest system bashTestArgs).nodes.machine.system.build.toplevel
+      );
+
+      # Guest closure of the rewrite test; model derivation shared as well.
+      integrationGuestRewrite = nixpkgs.lib.genAttrs testSystems (
+        system: (integrationTest system rewriteTestArgs).nodes.machine.system.build.toplevel
       );
 
       # The model weights as a host-system derivation. The output path is

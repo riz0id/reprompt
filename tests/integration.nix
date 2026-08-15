@@ -14,6 +14,8 @@
   pkgs,
   nixpkgs,
   mkReprompt,
+  name ? "reprompt-integration",
+  agentScript ? ./agent.py,
 }:
 let
   inherit (pkgs) lib;
@@ -30,7 +32,7 @@ let
   };
 in
 pkgs.testers.runNixOSTest {
-  name = "reprompt-integration";
+  inherit name;
 
   node.pkgs = lib.mkForce guestPkgs;
 
@@ -56,7 +58,7 @@ pkgs.testers.runNixOSTest {
         home = "/home/agent";
       };
 
-      environment.etc."reprompt/agent.py".source = ./agent.py;
+      environment.etc."reprompt/agent.py".source = agentScript;
 
       # Local model server: OpenAI-compatible chat API with tool calling
       # (--jinja uses the GGUF's chat template, which for Qwen3 defines

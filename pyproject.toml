@@ -18,6 +18,9 @@ reprompt = "reprompt.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reprompt"]
+# Ship the Rash transformers (.rkt) inside the package so the default
+# rewrite hook can discover them at run time.
+artifacts = ["*.rkt"]
 
 # fastmcp is provided by Nix (nixpkgs python3Packages.fastmcp) at run time and
 # is not always importable from the interpreter that runs mypy. The override

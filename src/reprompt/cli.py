@@ -6,7 +6,9 @@ import sys
 from reprompt import __version__
 from reprompt.config import BackendConfig, RepromptConfig, load_config
 from reprompt.hook import load_hook_function
+from reprompt.lift import lift_record_file
 from reprompt.proxy import build_proxy, run_proxy
+from reprompt.transformers import rewrite as default_rewrite
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -32,6 +34,17 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         required=True,
         help="Path to the configuration file.",
+    )
+
+    lift = subparsers.add_parser(
+        "lift", help="Lift recorded Bash commands into a #lang rash module."
+    )
+    lift.add_argument("record", metavar="RECORD", help="Path to a record.jsonl file.")
+    lift.add_argument(
+        "-o",
+        "--output",
+        metavar="PATH",
+        help="Write the module here (default: stdout).",
     )
 
     subparsers.add_parser("version", help="Show the version and exit.")
@@ -72,17 +85,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{args.config}: OK")
         return 0
 
+    if args.command == "lift":
+        try:
+            module_text = lift_record_file(args.record)
+        except (OSError, ValueError) as error:
+            print(f"reprompt: {error}", file=sys.stderr)
+            return 1
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as output_file:
+                output_file.write(module_text)
+        else:
+            sys.stdout.write(module_text)
+        return 0
+
     # args.command == "run"
     try:
         config = _run_config(args, parser)
+        # With no rewrite named in the config, fall back to the built-in
+        # hook that loads every Rash transformer in reprompt.transformers.
         rewrite = (
             load_hook_function(config.rewrite)
             if config.rewrite is not None
-            else None
+            else default_rewrite
         )
-        meta_fn = (
-            load_hook_function(config.meta) if config.meta is not None else None
-        )
+        meta_fn = load_hook_function(config.meta) if config.meta is not None else None
     except Exception as error:
         print(f"reprompt: {error}", file=sys.stderr)
         return 1

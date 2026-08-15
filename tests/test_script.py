@@ -12,6 +12,7 @@
 # artifacts are host files; run.sh checks them after the VM has closed. This
 # script asserts nothing about the number — it only drives the agent and
 # relays its trace to the driver log.
+import os
 from contextlib import AbstractContextManager
 from typing import Any, Callable
 
@@ -29,9 +30,21 @@ def run_test(machine: Any, subtest: Subtest) -> None:
     # llama-server answers /health with 200 only when it is ready.
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:8080/health", timeout=1800)
 
+    # A rewrite-test run generates an observed number on the host (run.sh
+    # exports REPROMPT_OBSERVED); inject it into the agent's environment.
+    # The assignment prefix is evaluated by the agent user's login shell
+    # AFTER su's environment reset, so it survives. The digits-only guard
+    # matters: the value crosses two shells on its way into the guest.
+    observed = os.environ.get("REPROMPT_OBSERVED", "")
+    prefix = ""
+    if observed:
+        if not observed.isdigit():
+            raise ValueError(f"REPROMPT_OBSERVED must be digits, got {observed!r}")
+        prefix = f"REPROMPT_OBSERVED={observed} "
+
     with subtest("the agent runs both prompts through the host proxy"):
         output = machine.succeed(
-            "su - agent -c 'python /etc/reprompt/agent.py'",
+            f"su - agent -c '{prefix}python /etc/reprompt/agent.py'",
             timeout=3600,
         )
         # Relay the agent trace to the host-side driver log.

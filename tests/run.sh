@@ -13,7 +13,7 @@
 # Optional overrides:
 #   REPROMPT_BUILDER_STATE     State directory
 #                              (default ~/.cache/reprompt/linux-builder).
-#   REPROMPT_BUILDER_SSH_PORT  Host TCP port for the builder's SSH
+#   REPROMPT_BUILDER_SSH_PORT  Host TCP port for the builder SSH
 #                              (default: first free port from 31122).
 #   REPROMPT_GUEST_ATTR        Guest closure flake attribute
 #                              (default integrationGuest).
@@ -33,35 +33,21 @@
 #                              (consumed by the hook, not by this script).
 #
 # On a Darwin host the Linux guest closure of the VM test cannot be built
-# locally. The sequence here (design.md section 8):
-#   1. keep state (disk image, SSH keys) in the state directory;
-#   2. boot the nixpkgs darwin.linux-builder VM with run-builder — the
-#      builder reads the client public key from the shared 9p keys
-#      directory, so no credentials are installed anywhere;
-#   3. build the guest closure on the builder as the invoking user
-#      (nix build --store ssh-ng://..., NIX_SSHOPTS carries port and key —
-#      the Nix daemon and its root SSH configuration play no part);
-#   4. import the result (nix copy --no-check-sigs; needs trusted-users);
-#   5. build the Darwin test driver locally and exec it;
-#   6. stop the builder VM (trap, and eagerly after the import).
-#
-# On a Linux host steps 1-4 and 6 are unnecessary: the driver builds
-# locally and is exec'ed directly.
+# locally; tests/lib-builder.sh supplies the builder VM lifecycle (boot,
+# remote guest build over user-owned SSH, import, stop). On a Linux host
+# the driver builds locally and is exec'ed directly.
 
 set -euo pipefail
 
-log() { printf '\033[1m[integration-test]\033[0m %s\n' "$*" >&2; }
-die() {
-  printf '\033[1;31m[integration-test] error:\033[0m %s\n' "$*" >&2
-  exit 1
-}
-
-nix_cmd=(nix --extra-experimental-features "nix-command flakes")
+export REPROMPT_LOG_TAG=integration-test
 
 # ---------------------------------------------------------------------------
 # Inputs
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=tests/lib-builder.sh
+. "$script_dir/lib-builder.sh"
+
 flake="${REPROMPT_FLAKE:-$(dirname "$script_dir")}"
 host_system="${REPROMPT_HOST_SYSTEM:-$("${nix_cmd[@]}" eval --impure --raw --expr builtins.currentSystem)}"
 guest_attr="${REPROMPT_GUEST_ATTR:-integrationGuest}"
@@ -73,184 +59,13 @@ case "$host_system" in
 esac
 
 # ---------------------------------------------------------------------------
-# Builder lifecycle (Darwin hosts only)
-
-builder_pid=""
-qemu_pidfile=""
-lock_dir=""
-
-cleanup() {
-  if [ -n "$qemu_pidfile" ] && [ -f "$qemu_pidfile" ]; then
-    qemu_pid=$(cat "$qemu_pidfile" 2>/dev/null || true)
-    if [ -n "$qemu_pid" ]; then
-      kill "$qemu_pid" 2>/dev/null || true
-    fi
-    rm -f "$qemu_pidfile"
-  fi
-  if [ -n "$builder_pid" ]; then
-    kill "$builder_pid" 2>/dev/null || true
-    builder_pid=""
-  fi
-  if [ -n "$lock_dir" ]; then
-    rmdir "$lock_dir" 2>/dev/null || true
-    lock_dir=""
-  fi
-}
-
-port_free() {
-  # /dev/tcp connect probe: a successful connect means something listens.
-  ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
-}
+# Builder lifecycle (Darwin hosts only): tests/lib-builder.sh. The model
+# weights are content-addressed and already in the local store (or a cached
+# download away); pre-copying them means the Linux guest build never
+# downloads the 2.4 GiB file.
 
 if [ "$needs_builder" = 1 ]; then
-  run_builder="${REPROMPT_RUN_BUILDER:-}"
-  [ -n "$run_builder" ] || die "REPROMPT_RUN_BUILDER is not set; run this \
-script through the flake app: nix run .#integration-test"
-
-  state="${REPROMPT_BUILDER_STATE:-${XDG_CACHE_HOME:-$HOME/.cache}/reprompt/linux-builder}"
-  case "$state" in
-    *" "*) die "the builder state directory path must not contain spaces: $state" ;;
-  esac
-  mkdir -p "$state"
-
-  trap cleanup EXIT INT TERM
-
-  # One builder VM per state directory: the VM writes the disk image
-  # ($state/nixos.qcow2) and a concurrent second VM would corrupt it.
-  lock_dir="$state/lock"
-  if ! mkdir "$lock_dir" 2>/dev/null; then
-    lock_path="$lock_dir"
-    lock_dir=""
-    die "another integration-test run appears to be active ($lock_path \
-exists). If no other run is active, remove that directory and retry."
-  fi
-
-  # SSH key pair for the builder. The public key is staged alone in a
-  # separate shared directory: run-builder copies the whole shared
-  # directory into the world-readable Nix store, so the private key must
-  # not be in it. The name builder_ed25519.pub matches the builder VM's
-  # services.openssh.authorizedKeysFiles pattern /var/keys/%u_ed25519.pub
-  # for the user `builder`.
-  mkdir -p "$state/keys"
-  chmod 700 "$state/keys"
-  key="$state/keys/builder_ed25519"
-  if [ ! -f "$key" ]; then
-    log "generating the builder SSH key pair"
-    ssh-keygen -q -t ed25519 -N "" -C reprompt-linux-builder -f "$key"
-  fi
-  shared_keys="$state/shared-keys"
-  mkdir -p "$shared_keys"
-  install -m 644 "$key.pub" "$shared_keys/builder_ed25519.pub"
-
-  # Choose the host port for the builder's SSH. The embedded builder has no
-  # baked-in port forward (flake.nix removes the stock tcp :31022 forward,
-  # which would abort QEMU whenever another builder runs), so the forward
-  # chosen here is the only one.
-  if [ -n "${REPROMPT_BUILDER_SSH_PORT:-}" ]; then
-    ssh_port="$REPROMPT_BUILDER_SSH_PORT"
-    port_free "$ssh_port" || die "REPROMPT_BUILDER_SSH_PORT=$ssh_port is \
-already in use; pick a free port or stop the process that holds it"
-  else
-    ssh_port=""
-    for p in $(seq 31122 31221); do
-      if port_free "$p"; then
-        ssh_port="$p"
-        break
-      fi
-    done
-    [ -n "$ssh_port" ] || die "no free TCP port found in 31122-31221; set \
-REPROMPT_BUILDER_SSH_PORT to a free port"
-  fi
-
-  if [ -e "$state/nixos.qcow2" ]; then
-    log "reusing the builder disk image $state/nixos.qcow2"
-  else
-    log "first start: the builder disk image will be created in $state"
-  fi
-
-  log "starting the Linux builder VM (SSH on 127.0.0.1:$ssh_port)"
-  qemu_pidfile="$state/qemu.pid"
-  rm -f "$qemu_pidfile"
-  (
-    cd "$state"
-    KEYS="$shared_keys" \
-      QEMU_NET_OPTS="hostfwd=tcp:127.0.0.1:${ssh_port}-:22" \
-      QEMU_OPTS="-pidfile $qemu_pidfile" \
-      exec "$run_builder" >"$state/builder.log" 2>&1
-  ) &
-  builder_pid=$!
-
-  # SSH options shared by the readiness probe, nix build, and nix copy.
-  # The connection belongs to the invoking user; no daemon, no root SSH
-  # configuration, no /etc/ssh host alias.
-  ssh_opts="-p $ssh_port -i $key \
--o UserKnownHostsFile=$state/known_hosts \
--o StrictHostKeyChecking=accept-new \
--o IdentitiesOnly=yes -o BatchMode=yes"
-
-  # Wait for SSH readiness. Probe with a real SSH exec, not a TCP connect:
-  # QEMU holds the forwarded port open long before sshd accepts logins.
-  log "waiting for the builder's SSH (this takes a few minutes on first boot)"
-  ssh_ready=""
-  for i in $(seq 1 180); do
-    if ! kill -0 "$builder_pid" 2>/dev/null; then
-      die "the builder VM exited before SSH came up; see $state/builder.log \
-(a common cause: the chosen host port $ssh_port was taken meanwhile)"
-    fi
-    # shellcheck disable=SC2086
-    if ssh $ssh_opts -o ConnectTimeout=5 "builder@localhost" true \
-      2>/dev/null; then
-      ssh_ready=1
-      break
-    fi
-    [ $((i % 12)) = 0 ] && log "still waiting for the builder's SSH..."
-    sleep 5
-  done
-  [ -n "$ssh_ready" ] || die "the builder's SSH did not become ready within \
-15 minutes; see $state/builder.log"
-  log "builder is up"
-
-  export NIX_SSHOPTS="$ssh_opts"
-  builder_store="ssh-ng://builder@localhost"
-
-  # The model weights are content-addressed and already in the local store
-  # (or a cached download away). Pre-copy them to the builder so the Linux
-  # guest build finds the path valid instead of downloading 2.4 GiB.
-  log "ensuring the model weights are local and on the builder"
-  model_path=$(
-    "${nix_cmd[@]}" build --no-link --print-out-paths \
-      "$flake#integrationModel.$host_system"
-  )
-  "${nix_cmd[@]}" copy --to "$builder_store" --no-check-sigs "$model_path"
-
-  # Build the Linux part of the test — the guest system closure — on the
-  # builder, as the invoking user.
-  log "building the Linux guest closure on the builder (remote build)"
-  guest_path=$(
-    "${nix_cmd[@]}" build \
-      --store "$builder_store" --eval-store auto \
-      --no-link --print-out-paths \
-      "$flake#$guest_attr.$host_system"
-  )
-  [ -n "$guest_path" ] || die "the remote build produced no output path"
-  log "guest closure built: $guest_path"
-
-  # Import the guest closure into the local store. The paths are unsigned,
-  # so the local Nix daemon only accepts them from a trusted user.
-  log "importing the guest closure into the local store"
-  if ! "${nix_cmd[@]}" copy --from "$builder_store" --no-check-sigs \
-    "$guest_path"; then
-    die "importing the unsigned guest closure was refused. Your user must \
-be in the Nix daemon's trusted-users on this host (nix-darwin: \
-nix.settings.trusted-users; plain nix: trusted-users in /etc/nix/nix.conf), \
-then restart the daemon and retry."
-  fi
-
-  # The builder has served its purpose; stop it before the driver runs so
-  # its memory is free for the test VM.
-  log "stopping the builder VM"
-  cleanup
-  trap - EXIT INT TERM
+  REPROMPT_PRECOPY_ATTR=integrationModel builder_bootstrap "$guest_attr"
 fi
 
 # ---------------------------------------------------------------------------
@@ -356,7 +171,7 @@ trap - EXIT INT TERM
 # ---------------------------------------------------------------------------
 # Pass/fail, entirely on host artifacts. The assertion script is
 # test-specific; each flake app exports REPROMPT_ASSERT, and the default
-# reproduces the original test's assertions for direct invocations.
+# reproduces the assertions of the original test for direct invocations.
 
 assert_script="${REPROMPT_ASSERT:-$script_dir/assert_meta_recall.sh}"
 log "running host-side assertions: $assert_script"

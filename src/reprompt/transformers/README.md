@@ -25,6 +25,38 @@ order, to each Bash command — the output of one transformer is the input to
 the next. The hook is total: a missing `racket`, a transformer that exits
 non-zero, or an empty collection all leave the command unchanged.
 
-The collection is currently empty, so the default hook is a pure identity.
-Drop a `.rkt` transformer here and it is loaded automatically; the `artifacts`
-entry in `pyproject.toml` ships `.rkt` files inside the installed package.
+Only `.rkt` files directly in this directory are run as transformers — the
+hook's listing is non-recursive, so library code in subdirectories is never
+invoked on its own. Drop a `.rkt` transformer here and it is loaded
+automatically; the `artifacts` entry in `pyproject.toml` ships `.rkt` files
+(at any depth) inside the installed package.
+
+## Transformers
+
+- `grep.rkt` — rewrites `grep`/`egrep`/`fgrep` pipeline stages as `rg`,
+  driven by the `grep->rg` command mapping (`cli/mappings/grep-rg.rkt`)
+  and leaving any invocation the mapping does not claim untouched.
+
+## The `cli/` library
+
+`cli/` is not a transformer: it is the library the transformers are
+written against, with two specification languages. A *command interface*
+(`define-command-interface`) is a declarative Racket specification of a
+bash command's CLI (flags, options, operands, subcommands) that drives
+parsing an intercepted command into a structured invocation, querying
+and editing it, and rendering it back to a faithful command string. A
+*command mapping* (`define-command-mapping`) is an explicit
+inter-interface specification: it depends on two per-command interface
+specifications and relates their keyword ids — an injective, partial
+translation from one command's invocations to another's, with every
+collapse it is allowed to make declared clause by clause. See
+`cli/README.md` and `cli/MAPPING-PLAN.md`; bundled interfaces for grep,
+rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, and systemctl live
+in `cli/specs/`, and mappings live in `cli/mappings/`.
+
+The grep→rg mapping's semantic assertions are validated by randomized
+extensional-equivalence testing: `tests/fuzz/gen-cases.rkt` generates
+seeded grep invocations and corpora, and `tests/fuzz/check-cases.sh`
+requires GNU grep and the translated rg to agree on stdout and exit code
+— hermetically inside a QEMU/NixOS VM via `nix run .#fuzz-test` (Darwin)
+or the `fuzz-grep-rg` flake check (Linux).

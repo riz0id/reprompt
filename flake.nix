@@ -75,6 +75,18 @@
           // overrides
         );
 
+      # Extensional-equivalence fuzz test of the grep->rg command mapping:
+      # a hermetic guest VM with GNU grep, ripgrep, and racket-with-rash
+      # generates seeded random grep commands, translates them through the
+      # mapping, and requires identical output and exit codes.
+      fuzzTest =
+        system:
+        import ./tests/fuzz-grep-rg.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          inherit nixpkgs;
+          mkRacketWithRash = mkRacketWithRash;
+        };
+
       # The bash-metadata variant of the VM test: same guest stack, but the
       # agent prompts for a Bash command and a Write, and the host proxy
       # tags only the Bash call (tests/meta_hook_bash.py).
@@ -251,6 +263,38 @@
                   type = "app";
                   program = "${(integrationTest system rewriteTestArgs).driver}/bin/nixos-test-driver";
                 };
+
+            # grep->rg fuzz test: extensional equivalence of the command
+            # mapping, checked inside a hermetic guest VM — no proxy, no
+            # model, no network. On Darwin, tests/run-fuzz.sh builds the
+            # guest closure on the builder VM and runs the driver locally;
+            # on Linux the driver runs directly.
+            fuzz-test =
+              if isDarwin then
+                {
+                  type = "app";
+                  program = nixpkgs.lib.getExe (
+                    pkgs.writeShellApplication {
+                      name = "reprompt-fuzz-test";
+                      runtimeInputs = [
+                        pkgs.nix
+                        pkgs.openssh
+                        pkgs.coreutils
+                      ];
+                      text = ''
+                        export REPROMPT_FLAKE=${self}
+                        export REPROMPT_HOST_SYSTEM=${system}
+                        export REPROMPT_RUN_BUILDER=${nixpkgs.lib.getExe linuxBuilder.run-builder}
+                        exec ${pkgs.runtimeShell} ${self}/tests/run-fuzz.sh
+                      '';
+                    }
+                  );
+                }
+              else
+                {
+                  type = "app";
+                  program = "${(fuzzTest system).driver}/bin/nixos-test-driver";
+                };
           }
         )
       );
@@ -267,6 +311,7 @@
           integration = (integrationTest system { }).driver;
           integration-bash = (integrationTest system bashTestArgs).driver;
           integration-rewrite = (integrationTest system rewriteTestArgs).driver;
+          fuzz-grep-rg = (fuzzTest system).driver;
 
           # Hermetic end-to-end check of `reprompt lift`: a committed
           # fixture record is lifted and the generated #lang rash module
@@ -341,6 +386,13 @@
       # Guest closure of the rewrite test; model derivation shared as well.
       integrationGuestRewrite = nixpkgs.lib.genAttrs testSystems (
         system: (integrationTest system rewriteTestArgs).nodes.machine.system.build.toplevel
+      );
+
+      # Guest closure of the grep->rg fuzz test; built on the Linux builder
+      # by tests/run-fuzz.sh on Darwin hosts. No model derivation: the fuzz
+      # guest needs only grep, rg, and racket.
+      fuzzGuest = nixpkgs.lib.genAttrs testSystems (
+        system: (fuzzTest system).nodes.machine.system.build.toplevel
       );
 
       # The model weights as a host-system derivation. The output path is

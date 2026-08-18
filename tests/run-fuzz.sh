@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-export REPROMPT_LOG_TAG=fuzz-test
+export REPROMPT_LOG_TAG="${REPROMPT_LOG_TAG:-fuzz-test}"
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=tests/lib-builder.sh
@@ -31,7 +31,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 
 flake="${REPROMPT_FLAKE:-$(dirname "$script_dir")}"
 host_system="${REPROMPT_HOST_SYSTEM:-$("${nix_cmd[@]}" eval --impure --raw --expr builtins.currentSystem)}"
-guest_attr="${REPROMPT_GUEST_ATTR:-fuzzGuest}"
+guest_attr="${REPROMPT_GUEST_ATTR:-fuzzGuests.grep-rg}"
 check_attr="${REPROMPT_CHECK_ATTR:-fuzz-grep-rg}"
 
 case "$host_system" in

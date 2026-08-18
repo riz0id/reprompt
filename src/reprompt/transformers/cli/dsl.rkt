@@ -45,7 +45,8 @@
     (pattern (option id:id alias:str ...+
                      (~alt (~optional (~and #:repeatable repeatable))
                            (~optional (~and #:optional-value optional-value))
-                           (~optional (~and #:attached-only attached-only)))
+                           (~optional (~and #:attached-only attached-only))
+                           (~optional (~seq #:values (val:str ...+))))
                      ...)))
 
   (define-syntax-class operand-clause
@@ -119,7 +120,8 @@
                (cons #`(make-option 'o.id (list o.alias ...)
                                     #:repeatable? #,rep
                                     #:optional-value? #,opt
-                                    #:attached-only? #,att)
+                                    #:attached-only? #,att
+                                    #:values (~? (list o.val ...) #f))
                      options))]
         [op:operand-clause
          (check-id! sc #'op.id)

@@ -30,7 +30,8 @@ Transformers require `cli/main.rkt` plus the specs they use:
   #:unknown 'reject                                ; the default
   (flag recursive "-r" "--recursive")              ; boolean, clusterable
   (option pattern "-e" "--regexp" #:repeatable)    ; takes a value
-  (option color "--color" #:optional-value)        ; value only as --color=x
+  (option color "--color" #:optional-value         ; value only as --color=x
+          #:values ("never" "auto" "always"))       ; enumerated: anything else rejects
   (option in-place "-i" #:optional-value #:attached-only)  ; sed -i.bak
   (operand pattern-operand #:arity one             ; one | optional | many
            #:unless (lambda (inv) (invocation-has-option? inv 'pattern)))
@@ -48,6 +49,11 @@ Transformers require `cli/main.rkt` plus the specs they use:
   back-anchors `mv SRC... DEST`. A `#:when`/`#:unless` predicate over the
   invocation-so-far activates or deactivates a slot (grep's pattern operand
   is absent when `-e` supplied one).
+- `#:values` declares an enumerated value vocabulary (grep's `--color`
+  WHEN); the parser rejects a supplied value outside the enumeration, so
+  everything downstream — mapping translation, the target re-parse, test
+  generation — derives value compatibility from the specs instead of
+  hardcoding it.
 - Subcommands nest an interface per subcommand word; the enclosing
   interface's flags and options stay matchable on both sides of it.
 - Spec mistakes (duplicate ids, alias collisions, two `many` operands) are
@@ -122,6 +128,22 @@ injectivity theorem and the checks that enforce it) and
 (define registry (make-spec-registry (list grep-cli)))
 (transform-line command registry (mapping->transformer grep->rg))
 ```
+
+**Every mapping has a dedicated VM test, and the test is derived, not
+written.** `tests/fuzz/gen-cases.rkt` samples random command lines from
+the mapping's *source interface specification* (heads, declared aliases,
+clustering and attachment styles, repeatability, optional and enumerated
+values) and uses the mapping itself as the domain and translation
+oracle; `tests/fuzz/check-cases.sh` then runs the two real tools inside
+a hermetic QEMU/NixOS guest and requires identical exit codes and
+stdout. Runs are seedless-random — failures are reproduced from the
+oracle's self-contained reports, never from a seed. Adding a mapping's
+test is one `fuzzTests` entry in `flake.nix` (mapping module and id,
+the two guest tools, a case count); the entry fans out into
+`checks.<system>.fuzz-<name>`, `fuzzGuests.<name>`, and
+`apps.<system>.fuzz-test-<name>`. Every divergence a test surfaces is
+fixed by hand in the mapping — an `identify`, a narrowed domain, an
+unclaimed id — never by teaching the test about the mapping.
 
 ## Modules
 

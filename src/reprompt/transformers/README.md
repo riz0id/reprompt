@@ -54,9 +54,15 @@ collapse it is allowed to make declared clause by clause. See
 rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, and systemctl live
 in `cli/specs/`, and mappings live in `cli/mappings/`.
 
-The grep→rg mapping's semantic assertions are validated by randomized
-extensional-equivalence testing: `tests/fuzz/gen-cases.rkt` generates
-seeded grep invocations and corpora, and `tests/fuzz/check-cases.sh`
-requires GNU grep and the translated rg to agree on stdout and exit code
-— hermetically inside a QEMU/NixOS VM via `nix run .#fuzz-test` (Darwin)
-or the `fuzz-grep-rg` flake check (Linux).
+Each mapping has a dedicated VM test derived from its source interface
+specification and the mapping itself: `tests/fuzz/gen-cases.rkt` samples
+random command lines from the interface spec, the mapping decides which
+translate, and `tests/fuzz/check-cases.sh` requires the two real tools
+to agree on stdout and exit code — hermetically inside a QEMU/NixOS VM,
+under fresh randomness every run (no seeds; failures carry
+self-contained reports). One `fuzzTests` entry in `flake.nix` per
+mapping generates the `fuzz-<name>` check, the `fuzzGuests.<name>`
+closure, and the `fuzz-test-<name>` app
+(`nix run .#fuzz-test-grep-rg`; `fuzz-test` is its alias). Every
+divergence a test surfaces is fixed by hand in the mapping, never by
+teaching the test about the mapping.

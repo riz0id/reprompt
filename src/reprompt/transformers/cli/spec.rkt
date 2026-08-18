@@ -42,7 +42,7 @@
 ;; optional-value?: the option may appear without a value (=-attached or
 ;; attached-only forms only -- it never consumes the next word);
 ;; attached-only?: a short alias's value is only ever attached (sed -i.bak)
-(struct option-spec (id shorts longs literals repeatable? optional-value? attached-only?)
+(struct option-spec (id shorts longs literals repeatable? optional-value? attached-only? values)
   #:transparent)
 ;; arity: 'one | 'optional | 'many; guard: #f or a predicate over the
 ;; invocation-so-far deciding whether the slot is active
@@ -77,13 +77,18 @@
 (define (make-option id aliases
                      #:repeatable? [repeatable? #f]
                      #:optional-value? [optional-value? #f]
-                     #:attached-only? [attached-only? #f])
+                     #:attached-only? [attached-only? #f]
+                     #:values [values #f])
   (define-values (shorts longs literals) (partition-aliases 'make-option aliases))
   (when (and optional-value? (null? longs) (not attached-only?))
     (error 'make-option
            "option ~a: an optional value needs a long alias or #:attached-only?"
            id))
-  (option-spec id shorts longs literals repeatable? optional-value? attached-only?))
+  (when values
+    (unless (and (list? values) (pair? values) (andmap string? values))
+      (error 'make-option "option ~a: #:values must be a list of strings" id))
+    (check-duplicates 'make-option "enumerated value" values))
+  (option-spec id shorts longs literals repeatable? optional-value? attached-only? values))
 
 (define (make-operand id arity [guard #f])
   (unless (memq arity '(one optional many))

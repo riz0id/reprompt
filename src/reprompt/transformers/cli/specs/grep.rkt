@@ -38,16 +38,18 @@
   (option before-context "-B" "--before-context")
   (option context "-C" "--context")
   (option max-count "-m" "--max-count")
-  (option directories "-d" "--directories")
-  (option devices "-D" "--devices")
+  (option directories "-d" "--directories" #:values ("read" "recurse" "skip"))
+  (option devices "-D" "--devices" #:values ("read" "skip"))
   (option include "--include" #:repeatable)
   (option exclude "--exclude" #:repeatable)
   (option include-dir "--include-dir" #:repeatable)
   (option exclude-dir "--exclude-dir" #:repeatable)
-  (option binary-files "--binary-files")
+  (option binary-files "--binary-files" #:values ("binary" "text" "without-match"))
   (option label "--label")
-  (option color "--color" #:optional-value)
-  (option colour "--colour" #:optional-value)
+  (option color "--color" #:optional-value
+          #:values ("never" "no" "none" "auto" "tty" "if-tty" "always" "yes" "force"))
+  (option colour "--colour" #:optional-value
+          #:values ("never" "no" "none" "auto" "tty" "if-tty" "always" "yes" "force"))
   (operand pattern-operand #:arity one
            #:unless (lambda (inv)
                       (or (invocation-has-option? inv 'pattern)

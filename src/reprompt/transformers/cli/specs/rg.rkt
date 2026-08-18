@@ -58,9 +58,9 @@
   (option max-filesize "--max-filesize")
   (option encoding "-E" "--encoding")
   (option replace "-r" "--replace")
-  (option sort "--sort")
-  (option sortr "--sortr")
-  (option color "--color")
+  (option sort "--sort" #:values ("none" "path" "modified" "accessed" "created"))
+  (option sortr "--sortr" #:values ("none" "path" "modified" "accessed" "created"))
+  (option color "--color" #:values ("never" "auto" "always" "ansi"))
   (option colors "--colors" #:repeatable)
   (operand pattern-operand #:arity one
            #:unless (lambda (inv)

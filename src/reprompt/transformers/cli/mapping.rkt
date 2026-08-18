@@ -42,6 +42,7 @@
          command-mapping-from
          command-mapping-to
          make-command-mapping
+         mapping-claimed-ids
          mapping-forward
          mapping->transformer)
 
@@ -491,6 +492,12 @@
               (invocation? (parse-invocation (command-mapping-to m)
                                              (invocation-words inv*)))
               inv*))))
+
+(define (mapping-claimed-ids m)
+  ;; The source ids the mapping's rules claim -- introspection for
+  ;; spec-derived test generators, which weight their sampling toward the
+  ;; mapping's domain. Ids erased by identify rules are not included.
+  (hash-keys (command-mapping-rules m)))
 
 (define ((mapping->transformer m) spec inv)
   ;; The transform-line callback shape.

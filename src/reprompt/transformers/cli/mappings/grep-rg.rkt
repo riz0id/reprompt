@@ -92,6 +92,33 @@
       (for/and ([p (in-list (patterns-of inv))])
         (positive? (string-length p)))))
 
+;; Operand shape conditions around recursion. With -r and no path
+;; operand, grep searches the working directory while rg falls back to
+;; reading stdin, so recursive requires an explicit path. Without -r,
+;; grep errors on a directory operand where rg recurses into it;
+;; directory-ness is invisible to a syntactic predicate, so the guard
+;; rejects the directory *spellings* -- ".", "..", a trailing slash --
+;; and a bare name that happens to be a directory remains the documented
+;; unguardable divergence.
+(define (dir-spelling? v)
+  (or (member v '("." "..")) (regexp-match? #rx"/$" v)))
+
+(define (operand-paths-ok? inv)
+  (if (invocation-has-flag? inv 'recursive)
+      (pair? (invocation-operands inv 'files))
+      (for/and ([v (in-list (invocation-operands inv 'files))])
+        (not (dir-spelling? v)))))
+
+;; grep applies --include filters to explicitly named files; rg never
+;; filters explicit paths ("paths given explicitly are always
+;; searched"). The two agree only on traversed paths, so include is
+;; claimed only under -r with directory-spelled operands.
+(define (include-ok? inv)
+  (or (not (invocation-has-option? inv 'include))
+      (and (invocation-has-flag? inv 'recursive)
+           (for/and ([v (in-list (invocation-operands inv 'files))])
+             (dir-spelling? v)))))
+
 ;; -o is where the two tools disagree most: grep prints nothing under
 ;; -v -o where rg prints lines, grep ignores context options under -o
 ;; where rg honors them, and grep skips empty matches where rg emits one
@@ -112,9 +139,29 @@
                   (or fixed?
                       (not (regexp-match? #rx"[*?]" p))))))))
 
+;; Value compatibility is derived from the two interface specs: values
+;; outside grep's declared enumeration reject at the source parse, and
+;; grep-only synonyms (no/none/yes/force/tty/if-tty) reject at the
+;; target re-parse against rg's enumeration. One value is excluded by
+;; hand because the divergence is semantic, not syntactic: both tools
+;; accept "always", but they emit different escape sequences under it.
+(define (color-always-ok? inv)
+  (not (member "always" (append (invocation-option-values inv 'color)
+                                (invocation-option-values inv 'colour)))))
+
+;; Searching stdin, the two tools print different labels -- grep's
+;; "(standard input)" vs rg's "<stdin>" -- and rg has no counterpart to
+;; grep's --label to bridge them. So without file operands, the
+;; filename-printing elements are out of the domain.
+(define (stdin-label-ok? inv)
+  (or (pair? (invocation-operands inv 'files))
+      (and (not (invocation-has-flag? inv 'with-filename))
+           (not (invocation-has-flag? inv 'files-with-matches)))))
+
 (define (in-domain? inv)
   (and (dialect-ok? inv) (output-modes-ok? inv) (match-scope-ok? inv)
-       (only-matching-ok? inv) (invert-ok? inv)))
+       (only-matching-ok? inv) (invert-ok? inv) (operand-paths-ok? inv)
+       (include-ok? inv) (stdin-label-ok? inv) (color-always-ok? inv)))
 
 (define-command-mapping grep->rg
   #:from grep-cli

@@ -165,10 +165,34 @@
                    (absorb (sub1 k) (cdr pending)
                            (cons (operand-arg id (operand-arg-surface (car pending))) acc))))])]))]))
 
+(define (find-option-spec iface sub id)
+  (define (search i)
+    (for/or ([s (in-list (command-interface-options i))])
+      (and (eq? id (option-spec-id s)) s)))
+  (or (and sub (search (subcommand-spec-interface sub)))
+      (search iface)))
+
+(define (enum-violation ordered iface sub)
+  ;; The id of an option whose supplied value falls outside its spec's
+  ;; enumerated values, or #f.
+  (for/or ([a (in-list ordered)])
+    (and (option-arg? a)
+         (option-arg-value a)
+         (let ([s (find-option-spec iface sub (option-arg-id a))])
+           (and s (option-spec-values s)
+                (not (member (option-arg-value a) (option-spec-values s)))
+                (option-arg-id a))))))
+
 (define (finish iface head sub args)
   ;; Assign ids to pending operands under the operand guards and rebuild the
   ;; argument list in source order.
   (define ordered (reverse args))
+  (define enum-bad (enum-violation ordered iface sub))
+  (if enum-bad
+      (reject (format "invalid value for option ~a" enum-bad))
+      (finish* iface head sub ordered)))
+
+(define (finish* iface head sub ordered)
   (define provisional (invocation iface head sub ordered))
   (define operand-specs
     (for/list ([s (in-list (command-interface-operands

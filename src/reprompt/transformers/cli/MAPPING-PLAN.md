@@ -419,7 +419,12 @@ option maps to a required-value target option only if an `identify`
 with left pattern `(o, ⊥)` eliminates `⊥` first; each source id claimed
 once; identify patterns disjoint and `μ`-decreasing; heads and operand
 slots aligned injectively; coverage accounting (unclaimed source ids
-form the reject set). Witness laws are validated on the mapping's
+form the reject set). Value compatibility for enumerated options
+(`#:values` in the interface specs) is derived from the two specs
+rather than restated in the mapping: a value outside the source
+enumeration rejects at the source parse, and a source-valid value
+outside the target enumeration rejects at the target re-parse.
+Witness laws are validated on the mapping's
 literal values at construction time and re-checked per translated value
 at runtime (an unfaithful forward/witness pair rejects the stage rather
 than producing a non-injective translation). Clause guards, the domain

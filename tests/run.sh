@@ -98,7 +98,7 @@ artifact_dir=$(mktemp -d "${TMPDIR:-/tmp}/reprompt-test.XXXXXX")
 mkdir -p "$artifact_dir/work"
 
 # Rewrite tests get a per-run observed number. It is exported so the test
-# driver (started later in this environment) can inject it into the guest;
+# driver (started later in this environment) can surject it into the guest;
 # the file copy is for the host-side assertions.
 if [ -n "${REPROMPT_REWRITE_HOOK:-}" ]; then
   observed=$(od -An -N4 -tu4 /dev/urandom | tr -cd '0-9')

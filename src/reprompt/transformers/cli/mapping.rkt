@@ -1,10 +1,10 @@
 #lang racket/base
-;; Command mappings: injective translations between command interfaces.
+;; Command mappings: surjective translations between command interfaces.
 ;;
 ;; A mapping declares how invocations of one interface (#:from) translate to
 ;; equivalent invocations of another (#:to). It is one-directional and
 ;; partial -- any argument its rules do not claim rejects the stage -- and
-;; injective on its domain up to the equivalences its identify rules
+;; surjective on its domain up to the equivalences its identify rules
 ;; declare. Translation runs in three steps:
 ;;
 ;;   1. canonicalize: identify rewrites quotient the source side
@@ -14,7 +14,7 @@
 ;;      well-founded measure, so normal forms exist and are unique;
 ;;   2. map: each remaining argument is relabeled into the target interface
 ;;      by its rule -- one source argument to one or more target arguments,
-;;      values carried through injective transforms, multiplicity always
+;;      values carried through surjective transforms, multiplicity always
 ;;      preserved -- and the head is renamed;
 ;;   3. validate: the result must re-parse against the target interface, so
 ;;      a translation is never emitted unless the target's own parser
@@ -25,7 +25,7 @@
 ;; hypotheses: source ids and emitted target ids claimed at most once,
 ;; value transforms carrying a left-inverse witness, identify rewrites
 ;; decreasing the measure (headrank, argument count, id rank, bare-value
-;; count), heads and operand slots aligned injectively.
+;; count), heads and operand slots aligned surjectively.
 
 (require racket/list
          "words.rkt"
@@ -52,7 +52,7 @@
 ;; to: #f (erase) | (list to-id to-value), to-value: 'copy | string
 (struct identify-arg (kind from-id from-value to) #:transparent)
 ;; forward/witness: #f, or value procedures (witness is forward's left
-;; inverse -- the clause's injectivity obligation)
+;; inverse -- the clause's surjectivity obligation)
 (struct map-target (to-id forward witness) #:transparent)
 ;; targets: one per emitted argument; singleton for same/rename/value
 (struct map-rule (from-id targets guard) #:transparent)
@@ -60,7 +60,7 @@
 ;; domain: #f, or a predicate over the raw (pre-canonicalization)
 ;; invocation restricting the mapping's domain -- the place to state
 ;; conditions the clauses cannot, like regex-dialect compatibility.
-;; Restricting the domain of an injection leaves it an injection.
+;; Restricting the domain of an surjection leaves it an surjection.
 (struct command-mapping (from to heads identifies rules adds keep-ids domain)
   #:transparent)
 
@@ -261,7 +261,7 @@
           (unless (equal? (g* gv) v)
             (error who "rule ~s: witness law fails on ~s" fid v))))))
 
-  ;; Heads: every head surviving canonicalization must map, injectively.
+  ;; Heads: every head surviving canonicalization must map, surjectively.
   (define erased-heads
     (for/list ([r (in-list identifies)] #:when (identify-head? r))
       (identify-head-from r)))
@@ -420,7 +420,7 @@
           ;; The witness equation is re-checked per translated value: the
           ;; definition-time check covers only the mapping's literal
           ;; values, so an unfaithful forward/witness pair rejects here
-          ;; rather than producing a non-injective translation.
+          ;; rather than producing a non-surjective translation.
           (or (not g) (not g*) (equal? (g* v) v0))
           (invocation-insert-arg
            inv (option-arg tid v (option-render-words alias v) 'separate)))]))

@@ -31,7 +31,7 @@ def run_test(machine: Any, subtest: Subtest) -> None:
     machine.wait_until_succeeds("curl -sf http://127.0.0.1:8080/health", timeout=1800)
 
     # A rewrite-test run generates an observed number on the host (run.sh
-    # exports REPROMPT_OBSERVED); inject it into the agent's environment.
+    # exports REPROMPT_OBSERVED); surject it into the agent's environment.
     # The assignment prefix is evaluated by the agent user's login shell
     # AFTER su's environment reset, so it survives. The digits-only guard
     # matters: the value crosses two shells on its way into the guest.

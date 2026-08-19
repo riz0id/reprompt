@@ -7,7 +7,7 @@ through the QEMU user-network gateway (10.0.2.2:8383).
 
 The agent issues exactly one prompt: run `touch <observed>` via the Bash
 tool, where the observed number arrives through the REPROMPT_OBSERVED
-environment variable (generated on the host by run.sh and injected by the
+environment variable (generated on the host by run.sh and surjected by the
 test driver). The host proxy's Racket/Rash syntax transformer replaces the
 command with `touch <hidden>` before execution; the hidden number is never
 provided to this guest beforehand. All pass/fail artifacts land on the

@@ -21,9 +21,16 @@ so it is always available at runtime.
 `reprompt.transformers.rewrite` (this package's `__init__.py`) is reprompt's
 default rewrite hook: whenever a configuration does not name its own `rewrite`
 (`src/reprompt/cli.py`), every `.rkt` file here is applied, in sorted filename
-order, to each Bash command — the output of one transformer is the input to
-the next. The hook is total: a missing `racket`, a transformer that exits
-non-zero, or an empty collection all leave the command unchanged.
+order, to each Bash call — the *enclosing call* is rendered as
+`Bash(<command>)`, and each transformer answers with one call form:
+`Bash(<command'>)` to stay a shell call (chaining continues), or
+`<server>.<tool>(<json>)` to retarget the call onto an MCP backend tool
+(chaining stops; the proxy middleware routes the retargeted body like any
+other call, and its result becomes the Bash call's result). The hook is
+total: a missing `racket`, a transformer that exits non-zero or prints an
+unrecognized call form, or an empty collection all leave the call unchanged.
+The `checks.<system>.rewrite-hook` flake check exercises the protocol
+hermetically.
 
 Only `.rkt` files directly in this directory are run as transformers — the
 hook's listing is non-recursive, so library code in subdirectories is never
@@ -36,6 +43,11 @@ automatically; the `artifacts` entry in `pyproject.toml` ships `.rkt` files
 - `grep.rkt` — rewrites `grep`/`egrep`/`fgrep` pipeline stages as `rg`,
   driven by the `grep->rg` command mapping (`cli/mappings/grep-rg.rkt`)
   and leaving any invocation the mapping does not claim untouched.
+- `rg.rkt` — retargets lone `rg --files --hidden --no-ignore` calls onto
+  the filesystem MCP server's `search_files` tool, driven by the
+  `rg->filesystem` command-to-tool mapping
+  (`cli/mappings/rg-filesystem.rkt`); content search, pipelines,
+  redirects, and filtered walks stay shell calls.
 
 ## The `cli/` library
 
@@ -47,12 +59,12 @@ parsing an intercepted command into a structured invocation, querying
 and editing it, and rendering it back to a faithful command string. A
 *command mapping* (`define-command-mapping`) is an explicit
 inter-interface specification: it depends on two per-command interface
-specifications and relates their keyword ids — an injective, partial
+specifications and relates their keyword ids — an surjective, partial
 translation from one command's invocations to another's, with every
 collapse it is allowed to make declared clause by clause. See
 `cli/README.md` and `cli/MAPPING-PLAN.md`; bundled interfaces for grep,
-rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, and systemctl live
-in `cli/specs/`, and mappings live in `cli/mappings/`.
+rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, systemctl, and wc
+live in `cli/specs/`, and mappings live in `cli/mappings/`.
 
 Each mapping has a dedicated VM test derived from its source interface
 specification and the mapping itself: `tests/fuzz/gen-cases.rkt` samples

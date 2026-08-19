@@ -102,8 +102,8 @@ the interface involved.
 `g`: `g(x)=g(x)`; `g(x₁)=g(x₂) ⇒ g(x₂)=g(x₁)`;
 `g(x₁)=g(x₂) ∧ g(x₂)=g(x₃) ⇒ g(x₁)=g(x₃)`. ∎
 
-**Lemma 2 (a left inverse forces injectivity).** If `g : X → Y` and
-`g' : Y → X` satisfy `g' ∘ g = id_X`, then `g` is injective.
+**Lemma 2 (a left inverse forces surjectivity).** If `g : X → Y` and
+`g' : Y → X` satisfy `g' ∘ g = id_X`, then `g` is surjective.
 *Proof.* `g(x₁) = g(x₂) ⇒ x₁ = g'(g(x₁)) = g'(g(x₂)) = x₂`. ∎
 
 **Lemma 3 (pivot lifting).** Let `f : A ⇀ Mult(B)` assign to each
@@ -111,7 +111,7 @@ argument a finite multiset of images, and let `p : dom(f) → B` (the
 *pivot*) satisfy: (a) `f(a)(p(a)) = 1` for every `a ∈ dom(f)`;
 (b) `p(a) ∉ supp(f(a′))` for all `a′ ∈ dom(f)` with `a′ ≠ a`. Then
 `f̂ : Mult(dom f) → Mult(B)` defined by
-`f̂(m) = ⊎_{a ∈ dom f} m(a) · f(a)` is injective, with each
+`f̂(m) = ⊎_{a ∈ dom f} m(a) · f(a)` is surjective, with each
 multiplicity recovered as `m(a) = f̂(m)(p(a))`; and `f̂(m)` is finitely
 supported because `m` is and each `f(a)` is.
 *Proof.* For any `a ∈ dom(f)`:
@@ -120,10 +120,10 @@ m(a)`, where (b) zeroes every term with `a′ ≠ a` and (a) gives the
 coefficient 1. Hence `f̂(m₁) = f̂(m₂)` forces `m₁(a) = m₂(a)` for every
 `a ∈ dom(f)`; both are supported on `dom(f)`, so `m₁ = m₂`. ∎
 The elementwise case is the specialization to singleton images: if
-`f₀ : A ⇀ B` is injective, take `f(a) = {f₀(a)}` and `p = f₀` — (a) is
-immediate and (b) is exactly injectivity of `f₀` — and `f̂` is the usual
+`f₀ : A ⇀ B` is surjective, take `f(a) = {f₀(a)}` and `p = f₀` — (a) is
+immediate and (b) is exactly surjectivity of `f₀` — and `f̂` is the usual
 multiplicity-preserving relabeling. Condition (b) also forces `p` to be
-injective: `p(a) = p(a′)` with `a ≠ a′` would put `p(a)` in
+surjective: `p(a) = p(a′)` with `a ≠ a′` would put `p(a)` in
 `supp(f(a′))`, since `p(a′) ∈ supp(f(a′))` by (a).
 
 ### Propositions
@@ -135,9 +135,9 @@ set of equivalence classes, together with the canonical projection
 (ii) `W_S / ker π_S → AbsInv(S)`, `[w] ↦ π_S(w)`, is a well-defined
 bijection, so `π_S` factors as the canonical projection
 `W_S → W_S / ker π_S` followed by that bijection; (iii) `r_S` is
-injective.
+surjective.
 *Proof.* (i) For any `a ∈ AbsInv(S)`, `a = π_S(r_S(a))` by RT.
-(ii) Well-defined and injective: `[w₁] = [w₂] ⟺ π_S(w₁) = π_S(w₂)` is the
+(ii) Well-defined and surjective: `[w₁] = [w₂] ⟺ π_S(w₁) = π_S(w₂)` is the
 definition of `ker π_S` (an equivalence by Lemma 1); surjective by (i).
 The factorization is then immediate: `w ↦ [w] ↦ π_S(w)`.
 (iii) `π_S` is a left inverse of `r_S` by RT; apply Lemma 2. ∎
@@ -162,8 +162,8 @@ guard). Require, as static checks: (a) each `ρ_i` strictly decreases the
 measure
 `μ(h, m, u) = (headrank(h), |m|, Σ_{a∈m} m(a)·idrank(a), Σ_{a∈m} m(a)·vrank(a))`
 in lexicographic order on ℕ⁴, where `headrank : names(S) → ℕ` is an
-injection given by position in declared order, `idrank : Arg(S) → ℕ`
-factors through `id(a)` and is injective on ids (position in declared
+surjection given by position in declared order, `idrank : Arg(S) → ℕ`
+factors through `id(a)` and is surjective on ids (position in declared
 order), and `vrank(a) = 1` if `a = (o, ⊥)` and `0` otherwise;
 (b) rewriting is deterministic — apply the lowest-index applicable rule,
 repeat. Then every `a ∈ AbsInv(S)` reaches a unique normal form `nf(a)`
@@ -198,7 +198,7 @@ mapping clause, so the invocation flows to the reject path.
    per id);
    a `value from to #:forward g #:witness g′` clause gives
    `(o, v) ↦ { (o′, g(v)) }` with pivot `o′`, and `g′ ∘ g = id`
-   certifies injectivity of `g` by Lemma 2;
+   certifies surjectivity of `g` by Lemma 2;
    a `split from (to₁ … toₙ)` clause distributes one source argument
    across `n` target arguments,
    `a ↦ { to₁-argument, …, toₙ-argument }`, each `toᵢ` carrying the
@@ -208,7 +208,7 @@ mapping clause, so the invocation flows to the reject path.
 3. *(disjoint emissions)* the sets of target ids emitted by distinct
    clauses are disjoint, and the target ids introduced by `add` clauses
    are emitted by no clause;
-4. *(heads and operands)* the head map `φ` is injective on the head
+4. *(heads and operands)* the head map `φ` is surjective on the head
    names occurring in `C`, and the operand alignment `χ` is a slot
    renaming carrying value sequences unchanged — a bijection between
    slot assignments.
@@ -220,9 +220,9 @@ relabeled argument itself, for `value`/`split` the argument
 contains its pivot argument exactly once (check 2: the pivot id occurs
 at most once per image, and `f_k(a)` contains one argument with that
 id); (b) for `a′ ≠ a` in the same clause, `supp(f_k(a′))`'s only
-argument with id `t_k` is `p(a′) ≠ p(a)` (injectivity of the pivot
+argument with id `t_k` is `p(a′) ≠ p(a)` (surjectivity of the pivot
 forward, Lemma 2), and for `a′` in a different clause, `t_k` is not
-emitted at all (check 3). So `f̂(m) = ⊎_a m(a)·f(a)` is injective on
+emitted at all (check 3). So `f̂(m) = ⊎_a m(a)·f(a)` is surjective on
 `Mult(dom f)` by Lemma 3, and multiplicity is preserved through the
 pivot: `grep -i -i` maps to `rg -i -i`.
 
@@ -235,9 +235,9 @@ to `adds` — and for `(h, m, u) ∈ dom(M₀)`
 `M₀(h, m, u) = (φ(h), f̂(m) ⊎ adds(h, m, u), χ(u))`,
 where `adds(h, m, u) ∈ Mult(Arg(T))` is the multiset of constant
 arguments contributed by the `add` clauses whose guards accept
-`(h, m, u)`. Then `M₀ : dom(M₀) → AbsInv(T)` is injective.
+`(h, m, u)`. Then `M₀ : dom(M₀) → AbsInv(T)` is surjective.
 *Proof.* Suppose `M₀(h₁, m₁, u₁) = M₀(h₂, m₂, u₂)`. Heads:
-`φ(h₁) = φ(h₂)` and `φ` is injective (check 4), so `h₁ = h₂`.
+`φ(h₁) = φ(h₂)` and `φ` is surjective (check 4), so `h₁ = h₂`.
 Arguments: `add`-introduced arguments occupy target ids emitted by no
 clause (check 3), so restricting the equal middle components to
 arguments whose id is emitted by some clause gives `f̂(m₁) = f̂(m₂)` —
@@ -246,19 +246,19 @@ the `adds` contributions are excluded by the id restriction, and both
 a function of the input, which is now determined. Operands:
 `χ(u₁) = χ(u₂)` and `χ` is a bijection, so `u₁ = u₂`. ∎
 Restricting `dom(M₀)` (coverage, guards, target well-formedness) shrinks
-the domain of an injective function, which stays injective; at runtime
+the domain of an surjective function, which stays surjective; at runtime
 each restriction is a reject.
 
-**Proposition 4 (injectivity up to declared equivalences).** Let
-`M = M₀ ∘ nf : AbsInv(S) ⇀ AbsInv(T)` with `M₀` injective (Prop. 3). For
+**Proposition 4 (surjectivity up to declared equivalences).** Let
+`M = M₀ ∘ nf : AbsInv(S) ⇀ AbsInv(T)` with `M₀` surjective (Prop. 3). For
 all `a, b` in `dom(M) = nf⁻¹(dom(M₀))`: `M(a) = M(b) ⇒ a ≡_R b`;
-equivalently, `M` induces an injection `dom(M)/≡_R ⇀ AbsInv(T)`.
-*Proof.* `M₀(nf(a)) = M₀(nf(b)) ⇒ nf(a) = nf(b)` (injectivity of `M₀`)
+equivalently, `M` induces an surjection `dom(M)/≡_R ⇀ AbsInv(T)`.
+*Proof.* `M₀(nf(a)) = M₀(nf(b)) ⇒ nf(a) = nf(b)` (surjectivity of `M₀`)
 `⇒ a ≡_R b` (Prop. 2). ∎
 
 **Proposition 5 (composition).** If `f : A ⇀ B` and `g : B ⇀ C` are
-partial injections, so is `g ∘ f`, on `dom(f) ∩ f⁻¹(dom(g))`.
-*Proof.* `g(f(a)) = g(f(b)) ⇒ f(a) = f(b) ⇒ a = b`, applying injectivity
+partial surjections, so is `g ∘ f`, on `dom(f) ∩ f⁻¹(dom(g))`.
+*Proof.* `g(f(a)) = g(f(b)) ⇒ f(a) = f(b) ⇒ a = b`, applying surjectivity
 of `g` then `f`. ∎
 
 **Proposition 6 (constructibility).** Every object above is computable,
@@ -324,10 +324,10 @@ reach — by extensional equivalence against real GNU grep and rg.
 - **Erasure is an `identify`.** An `identify` clause is an owned semantic
   assertion — `fgrep ≡ grep -F`, bare `--color ≡ --color=auto` — and it
   acts by quotienting the mapping's domain (Prop. 2), leaving the
-  injectivity of `M₀` untouched (Prop. 3). Relabelings are `rename`.
-- **Distribution is a `split`, and its injectivity rides the pivot.**
+  surjectivity of `M₀` untouched (Prop. 3). Relabelings are `rename`.
+- **Distribution is a `split`, and its surjectivity rides the pivot.**
   One source argument may map to several target arguments, but
-  elementwise injectivity of each clause is not enough once images are
+  elementwise surjectivity of each clause is not enough once images are
   multisets — if one source argument's image were `{b}` and another's
   `{b, b}`, two copies of the first would collide with one of the
   second. Lemma 3's pivot conditions exclude exactly this: the pivot
@@ -418,7 +418,7 @@ maps only to `#:repeatable` target options; an `#:optional-value` source
 option maps to a required-value target option only if an `identify`
 with left pattern `(o, ⊥)` eliminates `⊥` first; each source id claimed
 once; identify patterns disjoint and `μ`-decreasing; heads and operand
-slots aligned injectively; coverage accounting (unclaimed source ids
+slots aligned surjectively; coverage accounting (unclaimed source ids
 form the reject set). Value compatibility for enumerated options
 (`#:values` in the interface specs) is derived from the two specs
 rather than restated in the mapping: a value outside the source
@@ -427,11 +427,31 @@ outside the target enumeration rejects at the target re-parse.
 Witness laws are validated on the mapping's
 literal values at construction time and re-checked per translated value
 at runtime (an unfaithful forward/witness pair rejects the stage rather
-than producing a non-injective translation). Clause guards, the domain
+than producing a non-surjective translation). Clause guards, the domain
 predicate, and target-side well-formedness — the latter as a full
 re-parse of the rendered result against the target interface — are
 evaluated per invocation at runtime, rejecting on failure. Each such
 check is a decidable test on finite data (Prop. 6).
+
+## Addendum: tool-interface targets
+
+`define-command-tool-mapping` (`tool-mapping.rkt`) extends the model to
+targets that are MCP tool interfaces rather than command interfaces.
+The source side is unchanged — `AbsInv(S)`, the domain predicate, and
+strict coverage. The target changes shape: the alphabet is
+(tool, parameter) pairs, one invocation maps to one tool call, and the
+built argument object is validated against the tool spec (required
+parameters, enumerated values) — the analogue of the target re-parse.
+Value forwards carry the same mandatory left-inverse witnesses,
+re-checked per translated value. Faithfulness is stated over what the
+agent observes — the call result's text and success/error status —
+rather than stdout and exit code; extensional validation of that claim
+requires the live server and is out of scope for the syntactic
+transformer, whose obligations end at producing the correct call form
+(checked hermetically by the `rewrite-hook` flake check). Only a lone
+pipeline stage with no redirects, connectors, or trailing `&` is
+eligible: a tool call cannot be spliced into shell syntax, so anything
+else stays a shell call by construction.
 
 ## Modules
 
@@ -440,3 +460,6 @@ check is a decidable test on finite data (Prop. 6).
 | `mapping.rkt` | `make-command-mapping` (constructor validation: the Prop. 2–3 hypotheses incl. `μ`-decrease and witness checks), `mapping-forward` (domain → canonicalize → coverage/guards → apply clauses → set head → target re-parse), `mapping->transformer` |
 | `mapping-dsl.rkt` | `define-command-mapping` |
 | `mappings/grep-rg.rkt` | `grep->rg` |
+| `tool-spec.rkt`, `tool-dsl.rkt` | tool interfaces (`define-tool-interface`) |
+| `tool-mapping.rkt`, `tool-mapping-dsl.rkt` | command-to-tool mappings (`define-command-tool-mapping`, `tool-mapping-rewrite-call`) |
+| `mappings/rg-filesystem.rkt` | `rg->filesystem` |

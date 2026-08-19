@@ -10,10 +10,13 @@
 ;; mapping rejects -- a grep it does not fully understand is never
 ;; half-translated.
 ;;
-;; Invoked by the default rewrite hook as: racket grep.rkt COMMAND
-;; Prints the rewritten command on stdout and exits 0 when a stage was
-;; rewritten; exits non-zero otherwise so the caller keeps the original.
+;; Invoked by the default rewrite hook as: racket grep.rkt CALL, where
+;; CALL is the enclosing tool call rendered as Bash(<command>). Prints
+;; the rewritten call Bash(<command'>) on stdout and exits 0 when a
+;; stage was rewritten; exits non-zero otherwise so the caller keeps the
+;; original call.
 (require "cli/main.rkt"
+         "cli/toolcall.rkt"
          "cli/specs/grep.rkt"
          "cli/mappings/grep-rg.rkt")
 
@@ -21,11 +24,15 @@
 
 (define argv (current-command-line-arguments))
 (when (< (vector-length argv) 1)
-  (eprintf "usage: grep.rkt COMMAND\n")
+  (eprintf "usage: grep.rkt CALL\n")
   (exit 2))
+(define command (parse-bash-envelope (vector-ref argv 0)))
+(unless command
+  (eprintf "grep: not a Bash call\n")
+  (exit 1))
 (define rewritten
-  (transform-line (vector-ref argv 0) registry (mapping->transformer grep->rg)))
+  (transform-line command registry (mapping->transformer grep->rg)))
 (unless rewritten
   (eprintf "grep: no grep command to rewrite\n")
   (exit 1))
-(displayln rewritten)
+(displayln (render-bash-call rewritten))

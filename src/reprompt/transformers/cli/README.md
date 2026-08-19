@@ -60,7 +60,7 @@ Transformers require `cli/main.rkt` plus the specs they use:
   syntax errors at the offending clause.
 
 Bundled interfaces live in `specs/` — grep, rg, cd, ls, curl, sed, find,
-awk, mv, cp, launchctl, systemctl — with `specs/all.rkt` providing
+awk, mv, cp, launchctl, systemctl, wc — with `specs/all.rkt` providing
 `all-interfaces` and a ready-made `default-registry`. The twelve were chosen
 to stress the model: subcommands (systemctl, launchctl), literal primaries
 and operators (find), attached-only optional values (sed `-i`),
@@ -112,14 +112,14 @@ arguments, `$VAR`, globs, and URLs all round-trip.
 A second specification language, `define-command-mapping`, declares how
 invocations of one interface translate to equivalent invocations of
 another — one-directional, partial (anything unclaimed rejects the
-stage), and injective on its domain up to declared source-side
+stage), and surjective on its domain up to declared source-side
 equivalences. `identify` clauses canonicalize the source invocation
 first (`fgrep` ≡ `grep -F`, a bare `--color` ≡ `--color=auto`); `same`,
 `rename`, `value`, and `split` clauses then relabel each remaining
 argument into the target interface, preserving multiplicity and values;
 and the rendered result must re-parse against the target interface or
 the stage rejects. See `MAPPING-PLAN.md` for the formal model (the
-injectivity theorem and the checks that enforce it) and
+surjectivity theorem and the checks that enforce it) and
 `mappings/grep-rg.rkt` for the first instance:
 
 ```racket
@@ -145,6 +145,26 @@ the two guest tools, a case count); the entry fans out into
 fixed by hand in the mapping — an `identify`, a narrowed domain, an
 unclaimed id — never by teaching the test about the mapping.
 
+## Command-to-tool mappings
+
+A third specification kind targets an MCP server instead of another
+command. `define-tool-interface` (`tool-dsl.rkt` over `tool-spec.rkt`)
+declares a backend server's tools with parameter ids, required markers,
+and `#:values` enums — deliberately partial, like command specs — and
+`define-command-tool-mapping` (`tool-mapping-dsl.rkt` over
+`tool-mapping.rkt`) maps a command interface onto it: a `#:domain`
+predicate narrows the claimed fragment, tool cases bind parameters from
+source keywords (`#:from-option`, `#:from-operand`, `#:const`, with
+mandatory witnesses on value forwards), coverage is strict (every dash
+argument bound or consumed, or the invocation rejects), and the built
+argument object is validated against the tool spec. Only a lone
+pipeline stage with no redirects, connectors, or trailing `&` can
+become a tool call. The rendered form `<server>.<tool>({...})` travels
+through the default rewrite hook's `Bash(...)` envelope protocol, and
+the proxy middleware routes the retargeted call to the backend. See
+`mappings/rg-filesystem.rkt` for the first instance and
+`tools/filesystem.rkt` for the target spec.
+
 ## Modules
 
 | module | provides |
@@ -157,4 +177,9 @@ unclaimed id — never by teaching the test about the mapping.
 | `dsl.rkt` | `define-command-interface` |
 | `mapping.rkt` | `make-command-mapping`, `mapping-forward`, `mapping->transformer` |
 | `mapping-dsl.rkt` | `define-command-mapping` |
+| `toolcall.rkt` | `parse-bash-envelope`, `render-bash-call`, `render-mcp-call` |
+| `tool-spec.rkt` | tool-interface structs, runtime constructors and validation |
+| `tool-dsl.rkt` | `define-tool-interface` |
+| `tool-mapping.rkt` | `make-command-tool-mapping`, `tool-mapping-forward`, `tool-mapping-rewrite-call` |
+| `tool-mapping-dsl.rkt` | `define-command-tool-mapping` |
 | `main.rkt` | facade re-exporting all of the above plus `transform-line` |

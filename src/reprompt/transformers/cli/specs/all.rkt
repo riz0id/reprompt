@@ -12,16 +12,18 @@
          "mv.rkt"
          "cp.rkt"
          "launchctl.rkt"
-         "systemctl.rkt")
+         "systemctl.rkt"
+         "wc.rkt")
 
 (provide (all-from-out "grep.rkt" "rg.rkt" "cd.rkt" "ls.rkt" "curl.rkt"
                        "sed.rkt" "find.rkt" "awk.rkt" "mv.rkt" "cp.rkt"
-                       "launchctl.rkt" "systemctl.rkt")
+                       "launchctl.rkt" "systemctl.rkt" "wc.rkt")
          all-interfaces
          default-registry)
 
 (define all-interfaces
   (list grep-cli rg-cli cd-cli ls-cli curl-cli sed-cli
-        find-cli awk-cli mv-cli cp-cli launchctl-cli systemctl-cli))
+        find-cli awk-cli mv-cli cp-cli launchctl-cli systemctl-cli
+        wc-cli))
 
 (define default-registry (make-spec-registry all-interfaces))

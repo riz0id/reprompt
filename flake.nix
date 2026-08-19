@@ -392,6 +392,27 @@
                 esac
                 touch $out
               '';
+
+          # Hermetic check of the default rewrite hook's Bash(...)
+          # call-envelope protocol: a grep command rewrites in place
+          # through the transformer chain, an in-domain rg file-discovery
+          # call retargets onto the filesystem MCP server's search_files
+          # tool, and everything outside the mappings' domains passes
+          # through unchanged.
+          rewrite-hook =
+            pkgs.runCommand "reprompt-rewrite-hook-check"
+              {
+                nativeBuildInputs = [
+                  pkgs.python3
+                  (mkRacketWithRash pkgs)
+                ];
+              }
+              ''
+                export REPROMPT_RACKET=racket
+                export PYTHONPATH=${self}/src
+                python3 ${self}/tests/check_rewrite_hook.py
+                touch $out
+              '';
         }
       );
 

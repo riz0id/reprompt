@@ -2,11 +2,12 @@
 ;; grep(1) -> rg(1), as a command mapping.
 ;;
 ;; The identify rules declare the source-side equivalences the translation
-;; is allowed to collapse: an fgrep/egrep head is grep with -F/-E, --colour
-;; is --color, a bare --color means --color=auto, and -E is erased because
-;; the extended grammar is rg's default. -r is not erased: grep -r filters
-;; nothing, while bare rg skips hidden files and honors .gitignore, so
-;; recursive splits into rg's --hidden --no-ignore. Every remaining
+;; is allowed to collapse: an fgrep/egrep head is grep with -F/-E, and -E
+;; is erased because the extended grammar is rg's default. -r is not
+;; erased: grep -r filters nothing, while bare rg skips hidden files and
+;; honors .gitignore, so recursive splits into rg's --hidden --no-ignore.
+;; Colored output (--color/--colour) and stdin searches are excluded
+;; from the domain entirely. Every remaining
 ;; argument is claimed by exactly one rule; grep spellings shared by rg
 ;; keep their original surface, spellings rg lacks (-h, -s, --silent,
 ;; --perl-regexp, --include) re-render as the rg alias. Anything
@@ -139,29 +140,19 @@
                   (or fixed?
                       (not (regexp-match? #rx"[*?]" p))))))))
 
-;; Value compatibility is derived from the two interface specs: values
-;; outside grep's declared enumeration reject at the source parse, and
-;; grep-only synonyms (no/none/yes/force/tty/if-tty) reject at the
-;; target re-parse against rg's enumeration. One value is excluded by
-;; hand because the divergence is semantic, not syntactic: both tools
-;; accept "always", but they emit different escape sequences under it.
-(define (color-always-ok? inv)
-  (not (member "always" (append (invocation-option-values inv 'color)
-                                (invocation-option-values inv 'colour)))))
-
-;; Searching stdin, the two tools print different labels -- grep's
-;; "(standard input)" vs rg's "<stdin>" -- and rg has no counterpart to
-;; grep's --label to bridge them. So without file operands, the
-;; filename-printing elements are out of the domain.
-(define (stdin-label-ok? inv)
-  (or (pair? (invocation-operands inv 'files))
-      (and (not (invocation-has-flag? inv 'with-filename))
-           (not (invocation-has-flag? inv 'files-with-matches)))))
+;; The transformer applies only when grep is searching files, never
+;; stdin: with no file operand (or the explicit "-" operand) grep reads
+;; standard input, where the two tools diverge (grep labels it
+;; "(standard input)", rg "<stdin>", with no --label counterpart to
+;; bridge them).
+(define (searches-files? inv)
+  (define files (invocation-operands inv 'files))
+  (and (pair? files) (not (member "-" files))))
 
 (define (in-domain? inv)
   (and (dialect-ok? inv) (output-modes-ok? inv) (match-scope-ok? inv)
        (only-matching-ok? inv) (invert-ok? inv) (operand-paths-ok? inv)
-       (include-ok? inv) (stdin-label-ok? inv) (color-always-ok? inv)))
+       (include-ok? inv) (searches-files? inv)))
 
 (define-command-mapping grep->rg
   #:from grep-cli
@@ -171,13 +162,11 @@
 
   (identify (head "fgrep") (head "grep" (flag fixed-strings)))
   (identify (head "egrep") (head "grep" (flag extended-regexp)))
-  (identify (option colour) (option color))
-  (identify (option color #f) (option color "auto"))
   (identify (flag extended-regexp) ε)
 
   (same line-number ignore-case invert word-regexp line-regexp
         files-with-matches only-matching quiet with-filename fixed-strings
-        text byte-offset pattern pattern-file color
+        text byte-offset pattern pattern-file
         after-context before-context context max-count
         no-filename no-messages)
   ;; grep -c reports a count for every file, including zeroes; rg omits

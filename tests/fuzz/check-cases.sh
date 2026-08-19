@@ -16,8 +16,8 @@
 # content lines keep their file/line prefixes, so the multiset comparison
 # stays strong. Single-file outputs virtually always match at stage 1,
 # where ordering is genuinely deterministic and genuinely checked. stderr
-# is never compared (message texts legitimately differ). REJECT rows only
-# get counted: an untranslated command runs unmodified.
+# is never compared (message texts legitimately differ). Every manifest
+# row is an equivalence case.
 #
 # There is no seed, so a failing run cannot be regenerated; every failure
 # report is self-contained instead: the case id, both commands, both exit
@@ -77,15 +77,10 @@ empty="$out/.stdin-empty"
 : >"$empty"
 
 ran=0
-rejects=0
 fails=0
 
 while IFS=$'\t' read -r id corpus gcmd rcmd; do
   [ -n "$id" ] || continue
-  if [ "$rcmd" = "REJECT" ]; then
-    rejects=$((rejects + 1))
-    continue
-  fi
   dir="$out/$corpus"
 
   set +e
@@ -115,5 +110,5 @@ while IFS=$'\t' read -r id corpus gcmd rcmd; do
   ran=$((ran + 1))
 done <"$manifest"
 
-echo "check-cases: $ran executed, $rejects rejected, $fails failed"
+echo "check-cases: $ran executed, $fails failed"
 [ "$fails" = 0 ]

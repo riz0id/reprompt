@@ -9,13 +9,13 @@
 ;; their declared aliases, repeatability, optional-value and
 ;; attached-only behavior. The mapping itself is the domain oracle: a
 ;; generated command line that translates becomes an equivalence row, one
-;; that does not becomes a REJECT row, so no generator-side domain model
-;; exists to disagree with the mapping. Sampling is weighted toward the
-;; mapping's claimed ids so both the domain and the reject path stay
-;; exercised. Argument values come from a universal, id-blind pool -- the
-;; generator never knows which id means what -- and files exist only as
-;; effects of generating file paths (see below); there is no pre-built
-;; corpus.
+;; that does not is discarded and redrawn, so every manifest row is an
+;; equivalence case and no generator-side domain model exists to disagree
+;; with the mapping. Sampling is weighted toward the mapping's claimed
+;; ids so most draws land in the domain. Argument values come from a
+;; universal, id-blind pool -- the generator never knows which id means
+;; what -- and files exist only as effects of generating file paths (see
+;; below); there is no pre-built corpus.
 ;;
 ;; The PRNG is seeded from system randomness on every run; no seed is
 ;; accepted, printed, or recorded -- failures are reproduced from the
@@ -23,7 +23,7 @@
 ;;
 ;; Manifest (tab-separated; generated text never contains TAB):
 ;;
-;;   id <TAB> corpus-dir <TAB> source-command <TAB> target-command|REJECT
+;;   id <TAB> corpus-dir <TAB> source-command <TAB> target-command
 ;;
 ;; usage: racket gen-cases.rkt --transformers DIR --mapping MODULE
 ;;                             --id NAME --out DIR [--count K]
@@ -348,23 +348,31 @@
 
 (make-directory* (out-dir))
 
+;; Every manifest row is an equivalence case: draws the mapping rejects
+;; are discarded and redrawn. The attempt budget is a liveness bound
+;; only -- exhausting it means the domain admits almost nothing the
+;; interface can express.
+(define attempt-budget (* (the-count) 200))
+(define attempts 0)
+
 (define rows
   (for/list ([i (in-range (the-count))])
     (define dir-name (format "case-~a" i))
     (define case-dir (build-path (out-dir) dir-name))
     (make-directory* case-dir)
-    (define cmd (gen-case case-dir))
-    (define rg (translate cmd))
-    (string-join (list (number->string i) dir-name cmd (or rg "REJECT"))
-                 "\t")))
+    (let retry ()
+      (set! attempts (add1 attempts))
+      (when (> attempts attempt-budget)
+        (eprintf "gen-cases: attempt budget exhausted -- the mapping's domain admits too few generated commands\n")
+        (exit 1))
+      (define cmd (gen-case case-dir))
+      (define rg (translate cmd))
+      (if rg
+          (string-join (list (number->string i) dir-name cmd rg) "\t")
+          (retry)))))
 
 (write-text (build-path (out-dir) "cases.tsv")
             (string-append (string-join rows "\n") "\n"))
 
-(define n-reject (for/sum ([r (in-list rows)])
-                   (if (string-suffix? r "\tREJECT") 1 0)))
-(eprintf "gen-cases: ~a cases for ~a (~a translated, ~a rejected), out ~a\n"
-         (the-count) (mapping-id) (- (the-count) n-reject) n-reject (out-dir))
-(when (= n-reject (the-count))
-  (eprintf "gen-cases: every case rejected -- domain collapse\n")
-  (exit 1))
+(eprintf "gen-cases: ~a cases for ~a (~a draws), out ~a\n"
+         (the-count) (mapping-id) attempts (out-dir))

@@ -6,28 +6,16 @@
          "spec.rkt"
          "parse.rkt"
          "invocation.rkt"
-         "dsl.rkt"
-         "mapping.rkt"
-         "mapping-dsl.rkt"
-         "toolcall.rkt"
-         "tool-spec.rkt"
-         "tool-dsl.rkt"
-         "tool-mapping.rkt"
-         "tool-mapping-dsl.rkt")
+         "lower.rkt"
+         "toolcall.rkt")
 
 (provide (all-from-out "words.rkt")
          (all-from-out "line.rkt")
          (all-from-out "spec.rkt")
          (all-from-out "parse.rkt")
          (all-from-out "invocation.rkt")
-         (all-from-out "dsl.rkt")
-         (all-from-out "mapping.rkt")
-         (all-from-out "mapping-dsl.rkt")
+         (all-from-out "lower.rkt")
          (all-from-out "toolcall.rkt")
-         (all-from-out "tool-spec.rkt")
-         (all-from-out "tool-dsl.rkt")
-         (all-from-out "tool-mapping.rkt")
-         (all-from-out "tool-mapping-dsl.rkt")
          transform-line)
 
 (define (transform-line source registry proc)

@@ -40,41 +40,20 @@ automatically; the `artifacts` entry in `pyproject.toml` ships `.rkt` files
 
 ## Transformers
 
-- `grep.rkt` — rewrites `grep`/`egrep`/`fgrep` pipeline stages as `rg`,
-  driven by the `grep->rg` command mapping (`cli/mappings/grep-rg.rkt`)
-  and leaving any invocation the mapping does not claim untouched.
-- `rg.rkt` — retargets lone `rg --files --hidden --no-ignore` calls onto
-  the filesystem MCP server's `search_files` tool, driven by the
-  `rg->filesystem` command-to-tool mapping
-  (`cli/mappings/rg-filesystem.rkt`); content search, pipelines,
-  redirects, and filtered walks stay shell calls.
+None ship currently: the package carries the specification library and
+the hook plumbing, and every call passes through unchanged until a
+transformer `.rkt` is dropped into this directory.
 
 ## The `cli/` library
 
-`cli/` is not a transformer: it is the library the transformers are
-written against, with two specification languages. A *command interface*
-(`define-command-interface`) is a declarative Racket specification of a
-bash command's CLI (flags, options, operands, subcommands) that drives
+`cli/` is not a transformer: it is the library transformers are
+written against. A *command interface*
+is a declarative specification of a bash command's CLI (flags, options,
+operands, subcommands), written in the external
+[`cli-spec`](https://github.com/riz0id/cli-syntax) language and lowered
+by `command->interface` (`cli/lower.rkt`) into the model that drives
 parsing an intercepted command into a structured invocation, querying
-and editing it, and rendering it back to a faithful command string. A
-*command mapping* (`define-command-mapping`) is an explicit
-inter-interface specification: it depends on two per-command interface
-specifications and relates their keyword ids — an surjective, partial
-translation from one command's invocations to another's, with every
-collapse it is allowed to make declared clause by clause. See
-`cli/README.md` and `cli/MAPPING-PLAN.md`; bundled interfaces for grep,
-rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, systemctl, and wc
-live in `cli/specs/`, and mappings live in `cli/mappings/`.
-
-Each mapping has a dedicated VM test derived from its source interface
-specification and the mapping itself: `tests/fuzz/gen-cases.rkt` samples
-random command lines from the interface spec, the mapping decides which
-translate, and `tests/fuzz/check-cases.sh` requires the two real tools
-to agree on stdout and exit code — hermetically inside a QEMU/NixOS VM,
-under fresh randomness every run (no seeds; failures carry
-self-contained reports). One `fuzzTests` entry in `flake.nix` per
-mapping generates the `fuzz-<name>` check, the `fuzzGuests.<name>`
-closure, and the `fuzz-test-<name>` app
-(`nix run .#fuzz-test-grep-rg`; `fuzz-test` is its alias). Every
-divergence a test surfaces is fixed by hand in the mapping, never by
-teaching the test about the mapping.
+and editing it, and rendering it back to a faithful command string. See
+`cli/README.md`; bundled interfaces for grep,
+rg, cd, ls, curl, sed, awk, launchctl, systemctl, wc, git, and gh
+live in `cli/specs/`.

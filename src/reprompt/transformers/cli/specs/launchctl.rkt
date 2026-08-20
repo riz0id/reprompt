@@ -1,44 +1,46 @@
 #lang racket/base
 ;; launchctl(1) -- a subcommand-style interface: the word after `launchctl`
 ;; selects a nested interface with its own flags and operands.
-(require "../main.rkt")
+(require (prefix-in cli: cli-spec)
+         "../main.rkt")
 
 (provide launchctl-cli)
 
-(define-command-interface launchctl-cli
-  #:names ("launchctl")
-  (subcommand "load"
-              (flag override "-w")
-              (flag force "-F")
-              (operand paths #:arity many))
-  (subcommand "unload"
-              (flag override "-w")
-              (flag force "-F")
-              (operand paths #:arity many))
-  (subcommand "list"
-              (flag extended "-x")
-              (operand label #:arity optional))
-  (subcommand "start" (operand label #:arity one))
-  (subcommand "stop" (operand label #:arity one))
-  (subcommand "enable" (operand target #:arity one))
-  (subcommand "disable" (operand target #:arity one))
-  (subcommand "bootstrap"
-              (operand domain #:arity one)
-              (operand paths #:arity many))
-  (subcommand "bootout"
-              (operand domain #:arity one)
-              (operand paths #:arity many))
-  (subcommand "kickstart"
-              (flag kill "-k")
-              (flag print-pid "-p")
-              (operand target #:arity one))
-  (subcommand "print" (operand target #:arity one))
-  (subcommand "kill"
-              (operand signal #:arity one)
-              (operand target #:arity one))
-  (subcommand "remove" (operand label #:arity one))
-  (subcommand "blame" (operand target #:arity one))
-  (subcommand "hostinfo")
-  (subcommand "managerpid")
-  (subcommand "manageruid")
-  (subcommand "managername"))
+(define launchctl-cli
+  (command->interface
+   (cli:cmd 'launchctl
+     (cli:subcommand 'load
+       (cli:flag 'override #:aliases '(-w))
+       (cli:flag 'force #:aliases '(-F))
+       (cli:arg 'paths 'string #:arity '*))
+     (cli:subcommand 'unload
+       (cli:flag 'override #:aliases '(-w))
+       (cli:flag 'force #:aliases '(-F))
+       (cli:arg 'paths 'string #:arity '*))
+     (cli:subcommand 'list
+       (cli:flag 'extended #:aliases '(-x))
+       (cli:arg 'label 'string #:arity '?))
+     (cli:subcommand 'start (cli:arg 'label 'string))
+     (cli:subcommand 'stop (cli:arg 'label 'string))
+     (cli:subcommand 'enable (cli:arg 'target 'string))
+     (cli:subcommand 'disable (cli:arg 'target 'string))
+     (cli:subcommand 'bootstrap
+       (cli:arg 'domain 'string)
+       (cli:arg 'paths 'string #:arity '*))
+     (cli:subcommand 'bootout
+       (cli:arg 'domain 'string)
+       (cli:arg 'paths 'string #:arity '*))
+     (cli:subcommand 'kickstart
+       (cli:flag 'kill #:aliases '(-k))
+       (cli:flag 'print-pid #:aliases '(-p))
+       (cli:arg 'target 'string))
+     (cli:subcommand 'print (cli:arg 'target 'string))
+     (cli:subcommand 'kill
+       (cli:arg 'signal 'string)
+       (cli:arg 'target 'string))
+     (cli:subcommand 'remove (cli:arg 'label 'string))
+     (cli:subcommand 'blame (cli:arg 'target 'string))
+     (cli:subcommand 'hostinfo)
+     (cli:subcommand 'managerpid)
+     (cli:subcommand 'manageruid)
+     (cli:subcommand 'managername))))

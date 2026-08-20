@@ -5,14 +5,21 @@
 ;; operands, and (for commands like systemctl or launchctl) subcommands with
 ;; interfaces of their own. Aliases are classified by shape: `-x` is a short
 ;; alias (clusterable, may take an attached value), `--xxx` a long alias
-;; (value separate or `=`-attached), and anything else -- find's `-name`,
-;; `-print`, `!` -- a literal alias matched only as a whole word, checked
-;; before any short-cluster decomposition.
+;; (value separate or `=`-attached), and anything else a literal alias
+;; matched only as a whole word, checked before any short-cluster
+;; decomposition. (cli-spec admits only the short and long shapes, so
+;; lowered specs never populate the literal fields; the machinery remains
+;; for hand-assembled interfaces.)
 ;;
 ;; Specs are authored at development time, so constructor validation failures
 ;; (duplicate ids, alias collisions, malformed aliases) raise errors rather
 ;; than returning reject values.
-(require racket/list)
+;;
+;; This module is the parser's internal representation. Interfaces are not
+;; authored against it directly: they are written in the cli-spec language
+;; (https://github.com/riz0id/cli-syntax) and lowered here by lower.rkt.
+(require racket/list
+         racket/string)
 
 (provide (struct-out command-interface)
          (struct-out flag-spec)
@@ -30,6 +37,7 @@
          spec-find-short
          spec-find-literal
          spec-find-subcommand
+         spec-find-subcommand-path
          arg-spec-id
          arg-spec-render-alias)
 
@@ -44,10 +52,11 @@
 ;; attached-only?: a short alias's value is only ever attached (sed -i.bak)
 (struct option-spec (id shorts longs literals repeatable? optional-value? attached-only? values)
   #:transparent)
-;; arity: 'one | 'optional | 'many; guard: #f or a predicate over the
-;; invocation-so-far deciding whether the slot is active
-(struct operand-spec (id arity guard) #:transparent)
-(struct subcommand-spec (name interface) #:transparent)
+;; arity: 'one | 'optional | 'many
+(struct operand-spec (id arity) #:transparent)
+;; name: the canonical subcommand word; aliases: alternative words that
+;; select the same subcommand (gh's `ls` for `list`)
+(struct subcommand-spec (name aliases interface) #:transparent)
 
 (define (classify-alias who a)
   (cond
@@ -90,13 +99,15 @@
     (check-duplicates 'make-option "enumerated value" values))
   (option-spec id shorts longs literals repeatable? optional-value? attached-only? values))
 
-(define (make-operand id arity [guard #f])
+(define (make-operand id arity)
   (unless (memq arity '(one optional many))
     (error 'make-operand "operand ~a: bad arity ~s" id arity))
-  (operand-spec id arity guard))
+  (operand-spec id arity))
 
-(define (make-subcommand name interface)
-  (subcommand-spec name interface))
+(define (make-subcommand name interface #:aliases [aliases '()])
+  (unless (and (list? aliases) (andmap string? aliases))
+    (error 'make-subcommand "subcommand ~a: aliases must be strings" name))
+  (subcommand-spec name aliases interface))
 
 (define (check-duplicates who what items)
   (let loop ([items items] [seen '()])
@@ -128,7 +139,11 @@
   (check-duplicates who "short alias" (append-map spec-shorts dash-specs))
   (check-duplicates who "long alias" (append-map spec-longs dash-specs))
   (check-duplicates who "literal alias" (append-map spec-literals dash-specs))
-  (check-duplicates who "subcommand" (map subcommand-spec-name subcommands))
+  (check-duplicates who "subcommand"
+                    (append-map (lambda (sc)
+                                  (cons (subcommand-spec-name sc)
+                                        (subcommand-spec-aliases sc)))
+                                subcommands))
   (command-interface names flags options operands subcommands unknown))
 
 (define (spec-shorts s)
@@ -170,8 +185,22 @@
   (find-by iface spec-literals w))
 
 (define (spec-find-subcommand iface name)
+  ;; name: as it appeared on the command line -- canonical name or alias.
   (for/or ([sc (in-list (command-interface-subcommands iface))])
-    (and (equal? name (subcommand-spec-name sc)) sc)))
+    (and (or (equal? name (subcommand-spec-name sc))
+             (member name (subcommand-spec-aliases sc)))
+         sc)))
+
+(define (spec-find-subcommand-path iface path)
+  ;; path: space-separated canonical subcommand words ("issue list") ->
+  ;; the chain of subcommand-specs, leaf first, or #f.
+  (let loop ([iface iface] [names (string-split path)] [chain '()])
+    (cond
+      [(null? names) (and (pair? chain) chain)]
+      [else
+       (define sc (spec-find-subcommand iface (car names)))
+       (and sc
+            (loop (subcommand-spec-interface sc) (cdr names) (cons sc chain)))])))
 
 (define (make-spec-registry specs)
   ;; Command name -> interface; a name claimed twice is an authoring error.

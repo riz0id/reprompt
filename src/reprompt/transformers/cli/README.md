@@ -24,48 +24,63 @@ Transformers require `cli/main.rkt` plus the specs they use:
 
 ## Writing an interface
 
+Interfaces are authored in the external
+[`cli-spec`](https://github.com/riz0id/cli-syntax) language and lowered
+into this library's internal model by `command->interface` (`lower.rkt`):
+
 ```racket
-(define-command-interface grep-cli
-  #:names ("grep" "egrep" "fgrep")
-  #:unknown 'reject                                ; the default
-  (flag recursive "-r" "--recursive")              ; boolean, clusterable
-  (option pattern "-e" "--regexp" #:repeatable)    ; takes a value
-  (option color "--color" #:optional-value         ; value only as --color=x
-          #:values ("never" "auto" "always"))       ; enumerated: anything else rejects
-  (option in-place "-i" #:optional-value #:attached-only)  ; sed -i.bak
-  (operand pattern-operand #:arity one             ; one | optional | many
-           #:unless (lambda (inv) (invocation-has-option? inv 'pattern)))
-  (operand files #:arity many)
-  (subcommand "restart" (operand units #:arity many)))  ; systemctl-style
+(require (prefix-in cli: cli-spec) "cli/main.rkt")
+
+(define grep-cli
+  (command->interface
+   (cli:cmd 'grep
+     (cli:flag 'recursive #:aliases '(-r --recursive))       ; switch, clusterable
+     (cli:flag 'pattern 'string #:aliases '(-e --regexp)
+               #:repeat 'list)                               ; valued, repeatable
+     (cli:flag 'color (cli:enum "never" "auto" "always")     ; enumerated value
+               #:aliases '(--color) #:arity '?)              ; value optional, attached only
+     (cli:arg 'args 'string #:arity '*)                      ; operands: 1 | '? | '*
+     (cli:subcommand 'restart                                ; systemctl-style
+       (cli:arg 'units 'string #:arity '*)))))
 ```
 
-- Aliases are classified by shape: `-x` is a **short** alias (clusterable:
-  `-rn`, attachable value: `-C3`), `--xxx` a **long** alias (value separate
-  or `=`-attached), and anything else — `-name`, `-print`, `!` — a
-  **literal** alias matched only as a whole word, before any cluster
-  decomposition.
-- Operand slots are filled in declared order; a single `many` slot absorbs
-  the surplus, so `(operand sources #:arity many) (operand dest #:arity one)`
-  back-anchors `mv SRC... DEST`. A `#:when`/`#:unless` predicate over the
-  invocation-so-far activates or deactivates a slot (grep's pattern operand
-  is absent when `-e` supplied one).
-- `#:values` declares an enumerated value vocabulary (grep's `--color`
-  WHEN); the parser rejects a supplied value outside the enumeration, so
-  everything downstream — mapping translation, the target re-parse, test
-  generation — derives value compatibility from the specs instead of
-  hardcoding it.
-- Subcommands nest an interface per subcommand word; the enclosing
-  interface's flags and options stay matchable on both sides of it.
-- Spec mistakes (duplicate ids, alias collisions, two `many` operands) are
-  syntax errors at the offending clause.
+The lowering accepts the subset of `cli-spec` the transformers give
+semantics to and raises on anything outside it (see `lower.rkt`'s header
+for the full table):
 
-Bundled interfaces live in `specs/` — grep, rg, cd, ls, curl, sed, find,
-awk, mv, cp, launchctl, systemctl, wc — with `specs/all.rkt` providing
-`all-interfaces` and a ready-made `default-registry`. The twelve were chosen
-to stress the model: subcommands (systemctl, launchctl), literal primaries
-and operators (find), attached-only optional values (sed `-i`),
-back-anchored operands (mv, cp), guarded operands (grep, sed, awk), and
-heavily repeatable options (curl).
+- A command has **one head**: `(cli:cmd 'grep ...)` describes `grep` and
+  nothing else — a command's head uniquely identifies it, so `egrep` or
+  `gawk` would be commands (and specs) of their own.
+- A `cli:flag` with no type is a boolean switch; with a type it takes a
+  value. Only `'string` and `cli:enum` types lower; `#:repeat 'list`
+  marks a repeatable option; `#:arity '?` makes the value optional, and
+  an optional value never consumes the next word (`--color=x` / `-i.bak`
+  attached forms only).
+- Aliases are given explicitly as symbols and keep their declared order
+  (edited arguments render as the first long alias, else the first
+  short). `-x` is a short alias (clusterable, attachable value), `--xxx`
+  a long one; `cli-spec` admits no other shape, so literal-alias dialects
+  like find's `-name`/`!` are out of scope.
+- Operand slots are filled in declared order; at most one slot may be
+  variadic, and a single `'*` slot absorbs the surplus words. There are
+  no operand guards: when which-word-is-which depends on the flags
+  present (grep's pattern vs. its first file), the spec declares one
+  slot and let the consumer draw the boundary over the slot's words.
+- `cli:subcommand` nests to any depth (`gh issue list`), may carry
+  `#:aliases` (gh's `ls`, which parses verbatim but names the canonical
+  path), and the enclosing interfaces' flags and options stay matchable
+  after the subcommand words.
+- Spec mistakes are caught at construction: `cli:cmd` runs `cli-spec`'s
+  coherence pass (duplicate names, colliding spellings, two variadic
+  positionals), and the lowering rejects every construct it cannot give
+  faithful semantics to.
+
+Bundled interfaces live in `specs/` — grep, rg, cd, ls, curl, sed,
+awk, launchctl, systemctl, wc, git, gh — with `specs/all.rkt` providing
+`all-interfaces` and a ready-made `default-registry`. They stress the
+model: nested subcommands (gh), subcommands with top-level globals
+(systemctl), attached-only optional values (sed `-i`), enumerated values
+(grep `--color`), and heavily repeatable options (curl).
 
 ## Guarantees
 
@@ -103,67 +118,9 @@ refuses it up front; commands containing these are left unrewritten:
 | embedded newlines | only one line is read |
 | `a & b` | `&` separates commands (a trailing `&` is fine) |
 
-Practical consequences: `find ... -exec cmd {} \;` and single-quoted awk/sed
+Practical consequences: single-quoted awk/sed
 programs always reject (safely — the command runs unmodified); double-quoted
 arguments, `$VAR`, globs, and URLs all round-trip.
-
-## Command mappings
-
-A second specification language, `define-command-mapping`, declares how
-invocations of one interface translate to equivalent invocations of
-another — one-directional, partial (anything unclaimed rejects the
-stage), and surjective on its domain up to declared source-side
-equivalences. `identify` clauses canonicalize the source invocation
-first (`fgrep` ≡ `grep -F`, a bare `--color` ≡ `--color=auto`); `same`,
-`rename`, `value`, and `split` clauses then relabel each remaining
-argument into the target interface, preserving multiplicity and values;
-and the rendered result must re-parse against the target interface or
-the stage rejects. See `MAPPING-PLAN.md` for the formal model (the
-surjectivity theorem and the checks that enforce it) and
-`mappings/grep-rg.rkt` for the first instance:
-
-```racket
-(require "cli/main.rkt" "cli/specs/grep.rkt" "cli/mappings/grep-rg.rkt")
-
-(define registry (make-spec-registry (list grep-cli)))
-(transform-line command registry (mapping->transformer grep->rg))
-```
-
-**Every mapping has a dedicated VM test, and the test is derived, not
-written.** `tests/fuzz/gen-cases.rkt` samples random command lines from
-the mapping's *source interface specification* (heads, declared aliases,
-clustering and attachment styles, repeatability, optional and enumerated
-values) and uses the mapping itself as the domain and translation
-oracle; `tests/fuzz/check-cases.sh` then runs the two real tools inside
-a hermetic QEMU/NixOS guest and requires identical exit codes and
-stdout. Runs are seedless-random — failures are reproduced from the
-oracle's self-contained reports, never from a seed. Adding a mapping's
-test is one `fuzzTests` entry in `flake.nix` (mapping module and id,
-the two guest tools, a case count); the entry fans out into
-`checks.<system>.fuzz-<name>`, `fuzzGuests.<name>`, and
-`apps.<system>.fuzz-test-<name>`. Every divergence a test surfaces is
-fixed by hand in the mapping — an `identify`, a narrowed domain, an
-unclaimed id — never by teaching the test about the mapping.
-
-## Command-to-tool mappings
-
-A third specification kind targets an MCP server instead of another
-command. `define-tool-interface` (`tool-dsl.rkt` over `tool-spec.rkt`)
-declares a backend server's tools with parameter ids, required markers,
-and `#:values` enums — deliberately partial, like command specs — and
-`define-command-tool-mapping` (`tool-mapping-dsl.rkt` over
-`tool-mapping.rkt`) maps a command interface onto it: a `#:domain`
-predicate narrows the claimed fragment, tool cases bind parameters from
-source keywords (`#:from-option`, `#:from-operand`, `#:const`, with
-mandatory witnesses on value forwards), coverage is strict (every dash
-argument bound or consumed, or the invocation rejects), and the built
-argument object is validated against the tool spec. Only a lone
-pipeline stage with no redirects, connectors, or trailing `&` can
-become a tool call. The rendered form `<server>.<tool>({...})` travels
-through the default rewrite hook's `Bash(...)` envelope protocol, and
-the proxy middleware routes the retargeted call to the backend. See
-`mappings/rg-filesystem.rkt` for the first instance and
-`tools/filesystem.rkt` for the target spec.
 
 ## Modules
 
@@ -171,15 +128,9 @@ the proxy middleware routes the retargeted call to the backend. See
 |---|---|
 | `words.rkt` | `safe-read-line`, `word`/`reject` structs, `text->word`, `render-words` |
 | `line.rkt` | `parse-line`, `render-line`, `stage`/`pipeline`/`cmd-line`, `stage-head`, `map-stages` |
-| `spec.rkt` | interface structs, runtime constructors and validation, `make-spec-registry` |
+| `spec.rkt` | internal interface structs, runtime constructors and validation, `make-spec-registry` |
+| `lower.rkt` | `command->interface` — lowers a `cli-spec` command into the internal model |
 | `parse.rkt` | `parse-invocation`, arg structs, invocation queries (`invocation-has-flag?`, ...) |
 | `invocation.rkt` | edits (`invocation-set-head`, `-add/remove/set-option`, `-rename-arg`) and `render-invocation` |
-| `dsl.rkt` | `define-command-interface` |
-| `mapping.rkt` | `make-command-mapping`, `mapping-forward`, `mapping->transformer` |
-| `mapping-dsl.rkt` | `define-command-mapping` |
 | `toolcall.rkt` | `parse-bash-envelope`, `render-bash-call`, `render-mcp-call` |
-| `tool-spec.rkt` | tool-interface structs, runtime constructors and validation |
-| `tool-dsl.rkt` | `define-tool-interface` |
-| `tool-mapping.rkt` | `make-command-tool-mapping`, `tool-mapping-forward`, `tool-mapping-rewrite-call` |
-| `tool-mapping-dsl.rkt` | `define-command-tool-mapping` |
 | `main.rkt` | facade re-exporting all of the above plus `transform-line` |

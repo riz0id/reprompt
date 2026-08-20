@@ -1,6 +1,6 @@
 # Shared Linux-builder bootstrap for the reprompt test runners.
 #
-# Sourced (not executed) by tests/run.sh and tests/run-fuzz.sh on Darwin
+# Sourced (not executed) by tests/run.sh on Darwin
 # hosts, where the Linux guest closure of a VM test cannot be built
 # locally. The sequence (design.md section 8):
 #   1. keep state (disk image, SSH keys) in the state directory;

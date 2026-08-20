@@ -1,7 +1,8 @@
-# Racket (full distribution) plus the vendored rash package closure,
-# installed offline into an immutable user-scope layer ($out/addon).
+# Racket (full distribution) plus the vendored rash package closure and
+# the cli-spec interface-specification language, installed offline into
+# an immutable user-scope layer ($out/addon).
 #
-# Only these five packages need vendoring: every other dependency they
+# Only these six packages need vendoring: every other dependency they
 # declare (base, scribble-lib, scribble-doc, racket-doc, rackunit-lib,
 # readline-lib, sandbox-lib) ships in installation scope of the full
 # Racket distribution that nixpkgs' `racket` builds, so
@@ -38,10 +39,19 @@ let
     rev = "487dfc49ff3268b76dea9aa2011ddfe585da2672";
     hash = "sha256-Ia+wFnUSKMfhot0f8I8TFCPtGEdwy9gnnrnBEgNvSt0=";
   };
+  # The interface-specification language the cli/ transformer library's
+  # specs are written in. Collection name is cli-spec (see its info.rkt),
+  # so it must be staged under that name. Depends only on base.
+  cliSpecSrc = fetchFromGitHub {
+    owner = "riz0id";
+    repo = "cli-syntax";
+    rev = "1cfed7b40f91210c3b92d676671abb5f5b47b96c";
+    hash = "sha256-sTJkWSsRGGIt56PRr9hoWi+ez5CjbCUTXtamlfDrseo=";
+  };
 in
 stdenvNoCC.mkDerivation {
   pname = "racket-with-rash";
-  version = "${racket.version}-rash-0.2";
+  version = "${racket.version}-rash-0.3";
 
   dontUnpack = true;
   nativeBuildInputs = [ makeWrapper ];
@@ -58,6 +68,7 @@ stdenvNoCC.mkDerivation {
     cp -R ${rashRepo}/shell-pipeline staging/shell-pipeline
     cp -R ${rashRepo}/linea staging/linea
     cp -R ${rashRepo}/rash staging/rash
+    cp -R ${cliSpecSrc} staging/cli-spec
     chmod -R u+w staging
 
     # Install into an immutable user-scope layer under $out. Directory
@@ -69,7 +80,7 @@ stdenvNoCC.mkDerivation {
       --batch --deps fail --no-docs --copy --scope user \
       --jobs "''${NIX_BUILD_CORES:-1}" \
       staging/udelim staging/basedir staging/shell-pipeline \
-      staging/linea staging/rash
+      staging/linea staging/rash staging/cli-spec
 
     runHook postBuild
   '';
@@ -93,6 +104,7 @@ stdenvNoCC.mkDerivation {
     runHook preInstallCheck
     printf '#lang rash\necho hi from rash\n' > t.rkt
     $out/bin/racket t.rkt | grep -q "hi from rash"
+    $out/bin/racket -e '(require cli-spec) (void (cmd (quote ok)))'
     runHook postInstallCheck
   '';
 

@@ -11,8 +11,7 @@ description: >-
 
 You are adding a declarative interface spec for `$ARGUMENTS` to
 `src/reprompt/transformers/cli/specs/`. The spec is the vocabulary
-everything downstream targets: command mappings relate its keyword ids,
-and the derived VM fuzz tests sample commands from it. Follow the six
+everything downstream targets by its keyword ids. Follow the five
 steps in order.
 
 ## 1. Ground truth first
@@ -32,23 +31,26 @@ takes a value — those are omitted in step 3.
 ## 2. Read the language and two exemplars
 
 The language reference is `src/reprompt/transformers/cli/README.md`
-(clause forms, alias-shape classification, guarantees, known-reject
-constructs). Then read the two bundled specs closest to the command's
-shape:
+("Writing an interface": the `cli-spec` surface, the supported subset,
+guarantees, known-reject constructs) plus the lowering table in
+`cli/lower.rkt`'s header. Then read the two bundled specs closest to
+the command's shape:
 
 | shape | exemplar |
 |---|---|
-| flags/options with operand guards and `#:values` enums | `specs/grep.rkt` |
-| literal aliases and operators (`-name`, `!`) | `specs/find.rkt` |
-| subcommand commands | `specs/systemctl.rkt`, `specs/launchctl.rkt` |
-| back-anchored operands (`SRC... DEST`) | `specs/mv.rkt` |
+| flags/options with `#:values` enums | `specs/grep.rkt` |
+| nested subcommands with aliases | `specs/gh.rkt` |
+| subcommands with top-level globals | `specs/systemctl.rkt`, `specs/launchctl.rkt` |
 | attached-only optional values (`-i.bak`) | `specs/sed.rkt` |
 
 ## 3. Author `cli/specs/<command>.rkt`
 
-Module shape: `#lang racket/base`, `(require "../main.rkt")`,
-`(provide <command>-cli)`, one `define-command-interface` form, with a
-header comment stating the scope and what is deliberately omitted.
+Module shape: `#lang racket/base`,
+`(require (prefix-in cli: cli-spec) "../main.rkt")`,
+`(provide <command>-cli)`, one
+`(define <command>-cli (command->interface (cli:cmd '<command> ...)))`
+form, with a header comment stating the scope and what is deliberately
+omitted.
 
 The checklist — each item is load-bearing:
 
@@ -56,28 +58,38 @@ The checklist — each item is load-bearing:
   between implementations is left out entirely so commands using it
   reject and run unmodified (the grep `-Z` precedent).
   Reject-never-corrupt extends to authoring.
+- **One head per command.** `cli:cmd` names exactly the command the
+  spec describes; variant binaries (`egrep`, `gawk`) are not aliases of
+  it. The lowering rejects specs that cannot be given faithful
+  semantics — stay inside the subset in `lower.rkt`'s header ('string
+  and `cli:enum` types, arities `1`/`'?`/`'*`, no guards, no groups,
+  no rest clauses).
 - **Ids** are kebab-case symbols derived from the long alias
   (`--files-with-matches` → `files-with-matches`; short-only options
-  get a descriptive name). List aliases short, then long, then literal;
-  the alias *shape* determines its class (`-x` short and clusterable,
-  `--xxx` long with separate or `=`-attached value, anything else a
-  whole-word literal).
-- **Declaration order is semantic.** The order of `#:names` and of
-  flag/option clauses defines the head- and id-ranks used by the
-  mapping language's termination measure. Primary command name first;
-  ids in man-page order.
-- **Value behavior**: `#:repeatable` where repetition accumulates;
-  `#:optional-value` only where the value is genuinely omissible (needs
-  a long alias or `#:attached-only`); `#:attached-only` for values that
-  only ride the alias; and `#:values (...)` for **every** enumerated
-  value vocabulary — downstream value compatibility is derived from
-  these enumerations at parse and re-parse time, so an undeclared enum
+  get a descriptive name). Give `#:aliases` explicitly, short then
+  long; the alias *shape* determines its class (`-x` short and
+  clusterable, `--xxx` long with separate or `=`-attached value — no
+  other shape exists in `cli-spec`). Quote alias symbols that read as
+  numbers (`|-i|`, `|-I|`, `|-0|`, `|-1|`, `|-#|`).
+- **Declaration order matters.** Consumers see flags, options, and
+  operand slots in declared order (canonical rendering, slot filling).
+  Ids in man-page order.
+- **Value behavior**: a `cli:flag` with no type is a switch; with a
+  type it takes a value. `#:repeat 'list` where repetition
+  accumulates; `#:arity '?` only where the value is genuinely
+  omissible (the value then never consumes the next word — attached
+  forms only); and a `cli:enum` type for **every** enumerated value
+  vocabulary — downstream value compatibility is derived from these
+  enumerations at parse and re-parse time, so an undeclared enum
   silently widens the accepted language.
-- **Operands** in positional order with arity `one`, `optional`, or
-  `many` (at most one `many` per level); use `#:when`/`#:unless` guards
-  over the invocation for slots whose presence depends on other
-  arguments (grep's pattern operand vs `-e`). Subcommand commands use
-  `subcommand` clauses and take no top-level operands.
+- **Operands** (`cli:arg`, type `'string`) in positional order with
+  arity `1`, `'?`, or `'*` (at most one variadic slot per level, and
+  nothing required after it). There are no operand guards: when
+  which-word-is-which depends on flags (grep's pattern vs its first
+  file), declare one slot and let the consumer draw the boundary over
+  the slot's words. Subcommand commands use `cli:subcommand` clauses
+  (nesting allowed, `#:aliases` for alternate words) and take no
+  operands at a level that has subcommands.
 
 ## 4. Register the spec
 
@@ -88,20 +100,13 @@ The checklist — each item is load-bearing:
 
 ## 5. Validate proportionately
 
-A spec alone has no VM test; validation is compile plus round-trip:
+Validation is compile plus round-trip:
 
 - compile: `nix build .#racket-with-rash --no-link --print-out-paths`,
   then `<store-path>/bin/racket -e '(require (file ".../cli/specs/<command>.rkt"))'`;
 - round-trip a handful of representative real command lines through
   `parse-invocation` and `render-invocation`, one per tricky feature
-  the spec uses: a short cluster, an `=`-attached value, a guarded
-  operand, a literal alias or subcommand as applicable. Keep example
+  the spec uses: a short cluster, an `=`-attached value, an enum value,
+  a subcommand (nested or aliased) as applicable. Keep example
   lines inside the safe reader's language (no single quotes,
   backslashes, `;`, parens, or braces outside double-quoted strings).
-
-## 6. State the follow-on; do not do it
-
-The new spec earns a derived VM test only when a hand-written mapping
-names it (`define-command-mapping` with `#:from`/`#:to`) and a
-`fuzzTests` entry is added in `flake.nix`. That is a separate task —
-say so in your summary and stop after registration and validation.

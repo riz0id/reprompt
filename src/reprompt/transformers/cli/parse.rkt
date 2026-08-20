@@ -2,12 +2,13 @@
 ;; Classify a stage's words against a command interface.
 ;;
 ;; A single left-to-right pass over the words after the command head, matching
-;; each word by its logical text: literal aliases first (find's `-name` must
-;; never be unbundled as `-n -a -m -e`), then `--`, long forms split at the
+;; each word by its logical text: literal aliases first (a literal must
+;; never be unbundled as a short cluster), then `--`, long forms split at the
 ;; first `=`, short clusters character by character, and everything else as an
-;; operand. Operand ids are assigned afterwards, once the flags and options
-;; that operand guards may consult are known; a single 'many operand absorbs
-;; the surplus, which is what back-anchors `mv SRC... DEST`'s final slot.
+;; operand. A bare word at a node with subcommands descends -- recursively,
+;; so `gh issue list` walks two levels -- and dash words resolve against the
+;; interfaces on the descent chain, innermost first. Operand ids are
+;; assigned afterwards; a single 'many operand absorbs the surplus.
 ;;
 ;; Every parsed argument carries its `surface`: the source words it came
 ;; from, shared between arguments born of the same word (a `-rn` cluster
@@ -19,7 +20,8 @@
 ;; rewrite. 'permissive passes through nothing but provably self-contained
 ;; `--x=v` words -- an unknown `-x` or bare `--x` might consume the word
 ;; after it, which is exactly the ambiguity that corrupts commands.
-(require "words.rkt"
+(require racket/string
+         "words.rkt"
          "spec.rkt")
 
 (provide (struct-out invocation)
@@ -38,7 +40,8 @@
          invocation-subcommand-name
          invocation-find-spec)
 
-;; head: word; sub: subcommand-spec | #f; args: in source order
+;; head: word; sub: the subcommand-spec descent chain, leaf first ('() when
+;; no subcommand was taken); args: in source order
 (struct invocation (spec head sub args) #:transparent)
 ;; surface: (listof word) | #f -- #f means synthesized by an edit
 (struct flag-arg (id surface) #:transparent)
@@ -50,9 +53,14 @@
 (struct subcommand-arg (name surface) #:transparent)
 
 (define (lookup finder iface sub key)
-  ;; Subcommand interface first, then the enclosing one.
-  (or (and sub (finder (subcommand-spec-interface sub) key))
+  ;; Innermost subcommand interface first, then the enclosing ones out to
+  ;; the root.
+  (or (for/or ([sc (in-list sub)])
+        (finder (subcommand-spec-interface sc) key))
       (finder iface key)))
+
+(define (leaf-interface iface sub)
+  (if (null? sub) iface (subcommand-spec-interface (car sub))))
 
 (define (parse-cluster w iface sub next)
   ;; One `-xyz` word -> (values consumed-next? args) | reject
@@ -169,7 +177,8 @@
   (define (search i)
     (for/or ([s (in-list (command-interface-options i))])
       (and (eq? id (option-spec-id s)) s)))
-  (or (and sub (search (subcommand-spec-interface sub)))
+  (or (for/or ([sc (in-list sub)])
+        (search (subcommand-spec-interface sc)))
       (search iface)))
 
 (define (enum-violation ordered iface sub)
@@ -184,8 +193,8 @@
                 (option-arg-id a))))))
 
 (define (finish iface head sub args)
-  ;; Assign ids to pending operands under the operand guards and rebuild the
-  ;; argument list in source order.
+  ;; Assign ids to pending operands and rebuild the argument list in source
+  ;; order.
   (define ordered (reverse args))
   (define enum-bad (enum-violation ordered iface sub))
   (if enum-bad
@@ -193,13 +202,8 @@
       (finish* iface head sub ordered)))
 
 (define (finish* iface head sub ordered)
-  (define provisional (invocation iface head sub ordered))
   (define operand-specs
-    (for/list ([s (in-list (command-interface-operands
-                            (if sub (subcommand-spec-interface sub) iface)))]
-               #:when (let ([guard (operand-spec-guard s)])
-                        (or (not guard) (guard provisional))))
-      s))
+    (command-interface-operands (leaf-interface iface sub)))
   (define pending (for/list ([a (in-list ordered)]
                              #:when (and (operand-arg? a) (not (operand-arg-id a))))
                     a))
@@ -225,7 +229,7 @@
     [else
      (define head (car ws))
      (define unknown (command-interface-unknown-policy iface))
-     (let loop ([ws (cdr ws)] [args '()] [sub #f] [eoo #f])
+     (let loop ([ws (cdr ws)] [args '()] [sub '()] [eoo #f])
        (cond
          [(null? ws) (finish iface head sub args)]
          [else
@@ -234,10 +238,11 @@
           (define next (and (pair? (cdr ws)) (cadr ws)))
           (define (operand-word)
             (cond
-              [(and (not sub) (pair? (command-interface-subcommands iface)))
-               (define sc (spec-find-subcommand iface l))
+              [(pair? (command-interface-subcommands (leaf-interface iface sub)))
+               (define sc (spec-find-subcommand (leaf-interface iface sub) l))
                (if sc
-                   (loop (cdr ws) (cons (subcommand-arg l (list w)) args) sc eoo)
+                   (loop (cdr ws) (cons (subcommand-arg l (list w)) args)
+                         (cons sc sub) eoo)
                    (reject (format "unknown subcommand: ~a" l)))]
               [else (loop (cdr ws) (cons (operand-arg #f (list w)) args) sub eoo)]))
           (define (classified result-consumed? result-args)
@@ -300,16 +305,20 @@
     (word-logical (car (operand-arg-surface a)))))
 
 (define (invocation-subcommand-name inv)
-  (and (invocation-sub inv)
-       (subcommand-spec-name (invocation-sub inv))))
+  ;; The canonical subcommand path, outermost first, space-joined ("status",
+  ;; "issue list"), or #f when no subcommand was taken. Canonical: an alias
+  ;; word on the command line names its subcommand-spec's canonical name.
+  (and (pair? (invocation-sub inv))
+       (string-join (reverse (map subcommand-spec-name (invocation-sub inv)))
+                    " ")))
 
 (define (invocation-find-spec inv id)
-  ;; The flag or option spec an id names, in the active subcommand's
-  ;; interface or the enclosing one.
+  ;; The flag or option spec an id names, searching the subcommand descent
+  ;; chain innermost first, then the root interface.
   (define (search iface)
     (for/or ([s (in-list (append (command-interface-flags iface)
                                  (command-interface-options iface)))])
       (and (eq? id (arg-spec-id s)) s)))
-  (or (and (invocation-sub inv)
-           (search (subcommand-spec-interface (invocation-sub inv))))
+  (or (for/or ([sc (in-list (invocation-sub inv))])
+        (search (subcommand-spec-interface sc)))
       (search (invocation-spec inv))))

@@ -1,12 +1,10 @@
 """Hermetic check of the default rewrite hook's call-envelope protocol.
 
-Drives ``reprompt.transformers.rewrite`` on tool-call bodies and asserts
-the three behaviors of the Bash(...) protocol: a grep command is
-rewritten in place through the transformer chain, an in-domain rg
-file-discovery call is retargeted onto the filesystem MCP server's
-search_files tool, and everything outside the mappings' domains passes
-through unchanged. Needs ``racket`` (REPROMPT_RACKET or PATH) and
-``reprompt`` importable (PYTHONPATH); no network, no server.
+Drives ``reprompt.transformers.rewrite`` on tool-call bodies. No
+transformers ship with the package, so the hook's contract reduces to
+totality: every call -- Bash or otherwise -- passes through unchanged,
+and the hook never raises. Needs ``reprompt`` importable (PYTHONPATH);
+no network, no server, and no racket (nothing invokes it).
 """
 
 import sys
@@ -30,30 +28,19 @@ def check(label: str, body: Body, expect: Body) -> bool:
 def main() -> int:
     ok = True
     ok &= check(
-        "rg file discovery retargets to filesystem.search_files",
-        {
-            "name": "Bash",
-            "arguments": {"command": "rg --files --hidden --no-ignore -g *.c src/"},
-        },
-        {"name": "search_files", "arguments": {"path": "src/", "pattern": "*.c"}},
-    )
-    ok &= check(
-        "grep chains to rg and stays Bash",
+        "a Bash call is untouched",
         {"name": "Bash", "arguments": {"command": "grep -rn foo src/"}},
-        {
-            "name": "Bash",
-            "arguments": {"command": "rg --line-number --hidden --no-ignore foo src/"},
-        },
+        {"name": "Bash", "arguments": {"command": "grep -rn foo src/"}},
     )
     ok &= check(
-        "rg content search is untouched",
-        {"name": "Bash", "arguments": {"command": "rg foo file.txt"}},
-        {"name": "Bash", "arguments": {"command": "rg foo file.txt"}},
+        "a pipeline is untouched",
+        {"name": "Bash", "arguments": {"command": "rg foo file.txt | wc -l"}},
+        {"name": "Bash", "arguments": {"command": "rg foo file.txt | wc -l"}},
     )
     ok &= check(
-        "out-of-domain grep is untouched",
-        {"name": "Bash", "arguments": {"command": "grep -z foo f"}},
-        {"name": "Bash", "arguments": {"command": "grep -z foo f"}},
+        "a destructive command is untouched",
+        {"name": "Bash", "arguments": {"command": "find . -type f -delete"}},
+        {"name": "Bash", "arguments": {"command": "find . -type f -delete"}},
     )
     ok &= check(
         "non-Bash calls are untouched",

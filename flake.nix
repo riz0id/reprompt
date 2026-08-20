@@ -75,33 +75,6 @@
           // overrides
         );
 
-      # One dedicated VM fuzz test per command mapping. Each entry names a
-      # mapping module and id plus the two real tools the equivalence
-      # oracle runs; tests/fuzz-vm.nix derives the rest from the mapping
-      # and its source interface specification. Adding a mapping's test
-      # means adding an entry here, nothing else.
-      fuzzTests = {
-        grep-rg = {
-          mappingModule = "cli/mappings/grep-rg.rkt";
-          mappingId = "grep->rg";
-          guestPackages = pkgs: [
-            pkgs.gnugrep
-            pkgs.ripgrep
-          ];
-          count = 500;
-        };
-      };
-
-      mkFuzzTest =
-        system: name: cfg:
-        import ./tests/fuzz-vm.nix {
-          pkgs = nixpkgs.legacyPackages.${system};
-          inherit nixpkgs name;
-          inherit (cfg) mappingModule mappingId guestPackages;
-          fuzzCount = cfg.count;
-          mkRacketWithRash = mkRacketWithRash;
-        };
-
       # The bash-metadata variant of the VM test: same guest stack, but the
       # agent prompts for a Bash command and a Write, and the host proxy
       # tags only the Bash call (tests/meta_hook_bash.py).
@@ -208,36 +181,6 @@
                 );
               };
 
-            mkFuzzApp =
-              name: cfg:
-              if isDarwin then
-                {
-                  type = "app";
-                  program = nixpkgs.lib.getExe (
-                    pkgs.writeShellApplication {
-                      name = "reprompt-fuzz-${name}-test";
-                      runtimeInputs = [
-                        pkgs.nix
-                        pkgs.openssh
-                        pkgs.coreutils
-                      ];
-                      text = ''
-                        export REPROMPT_FLAKE=${self}
-                        export REPROMPT_HOST_SYSTEM=${system}
-                        export REPROMPT_RUN_BUILDER=${nixpkgs.lib.getExe linuxBuilder.run-builder}
-                        export REPROMPT_GUEST_ATTR=fuzzGuests.${name}
-                        export REPROMPT_CHECK_ATTR=fuzz-${name}
-                        export REPROMPT_LOG_TAG=fuzz-${name}
-                        exec ${pkgs.runtimeShell} ${self}/tests/run-fuzz.sh
-                      '';
-                    }
-                  );
-                }
-              else
-                {
-                  type = "app";
-                  program = "${(mkFuzzTest system name cfg).driver}/bin/nixos-test-driver";
-                };
           in
           {
             # One command runs the full test:
@@ -311,17 +254,6 @@
                 };
 
           }
-          # One fuzz-test app per mapping: extensional equivalence checked
-          # inside a hermetic guest VM — no proxy, no model, no network.
-          # On Darwin, tests/run-fuzz.sh builds the guest closure on the
-          # builder VM and runs the driver locally; on Linux the driver
-          # runs directly. fuzz-test aliases the grep-rg instance.
-          // nixpkgs.lib.mapAttrs' (
-            name: cfg: nixpkgs.lib.nameValuePair "fuzz-test-${name}" (mkFuzzApp name cfg)
-          ) fuzzTests
-          // {
-            fuzz-test = mkFuzzApp "grep-rg" fuzzTests.grep-rg;
-          }
         )
       );
 
@@ -333,10 +265,7 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
-        nixpkgs.lib.mapAttrs' (
-          name: cfg: nixpkgs.lib.nameValuePair "fuzz-${name}" (mkFuzzTest system name cfg).driver
-        ) fuzzTests
-        // {
+        {
           integration = (integrationTest system { }).driver;
           integration-bash = (integrationTest system bashTestArgs).driver;
           integration-rewrite = (integrationTest system rewriteTestArgs).driver;
@@ -394,11 +323,8 @@
               '';
 
           # Hermetic check of the default rewrite hook's Bash(...)
-          # call-envelope protocol: a grep command rewrites in place
-          # through the transformer chain, an in-domain rg file-discovery
-          # call retargets onto the filesystem MCP server's search_files
-          # tool, and everything outside the mappings' domains passes
-          # through unchanged.
+          # call-envelope protocol: with no transformers shipped, every
+          # call passes through unchanged and the hook stays total.
           rewrite-hook =
             pkgs.runCommand "reprompt-rewrite-hook-check"
               {
@@ -436,17 +362,6 @@
       integrationGuestRewrite = nixpkgs.lib.genAttrs testSystems (
         system: (integrationTest system rewriteTestArgs).nodes.machine.system.build.toplevel
       );
-
-      # Guest closures of the per-mapping fuzz tests, keyed
-      # fuzzGuests.<name>.<system>; built on the Linux builder by
-      # tests/run-fuzz.sh on Darwin hosts. No model derivation: a fuzz
-      # guest needs only the two real tools and racket.
-      fuzzGuests = nixpkgs.lib.mapAttrs (
-        name: cfg:
-        nixpkgs.lib.genAttrs testSystems (
-          system: (mkFuzzTest system name cfg).nodes.machine.system.build.toplevel
-        )
-      ) fuzzTests;
 
       # The model weights as a host-system derivation. The output path is
       # content-addressed and identical to the guest-side fetchurl in

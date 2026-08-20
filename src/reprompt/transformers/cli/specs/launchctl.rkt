@@ -1,14 +1,12 @@
 #lang racket/base
 ;; launchctl(1) -- a subcommand-style interface: the word after `launchctl`
 ;; selects a nested interface with its own flags and operands.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide launchctl-cli)
 
 (define launchctl-cli
-  (command->interface
-   (cli:cmd 'launchctl
+  (cli:cmd 'launchctl
      (cli:subcommand 'load
        (cli:flag 'override #:aliases '(-w))
        (cli:flag 'force #:aliases '(-F))
@@ -43,4 +41,4 @@
      (cli:subcommand 'hostinfo)
      (cli:subcommand 'managerpid)
      (cli:subcommand 'manageruid)
-     (cli:subcommand 'managername))))
+     (cli:subcommand 'managername)))

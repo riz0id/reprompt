@@ -7,14 +7,12 @@
 ;; pattern or a file depends on -e/-f, a distinction cli-spec's guardless
 ;; positionals cannot draw, so a consumer needing it must draw the boundary
 ;; over the slot's words itself (rendering is verbatim either way).
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide grep-cli)
 
 (define grep-cli
-  (command->interface
-   (cli:cmd 'grep
+  (cli:cmd 'grep
      (cli:flag 'recursive #:aliases '(-r --recursive))
      (cli:flag 'recursive-follow #:aliases '(-R --dereference-recursive))
      (cli:flag 'line-number #:aliases '(-n --line-number))
@@ -60,4 +58,4 @@
      (cli:flag 'colour (cli:enum "never" "no" "none" "auto" "tty" "if-tty"
                                  "always" "yes" "force")
                #:aliases '(--colour) #:arity '?)
-     (cli:arg 'args 'string #:arity '*))))
+     (cli:arg 'args 'string #:arity '*)))

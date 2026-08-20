@@ -3,14 +3,12 @@
 ;; and stay matchable before or after the subcommand word (`systemctl --user
 ;; enable --now foo` and `systemctl enable --now --user foo` both parse);
 ;; each subcommand contributes its own operands.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide systemctl-cli)
 
 (define systemctl-cli
-  (command->interface
-   (cli:cmd 'systemctl
+  (cli:cmd 'systemctl
      (cli:flag 'user #:aliases '(--user))
      (cli:flag 'system #:aliases '(--system))
      (cli:flag 'now #:aliases '(--now))
@@ -66,4 +64,4 @@
      (cli:subcommand 'set-default (cli:arg 'unit 'string))
      (cli:subcommand 'get-default)
      (cli:subcommand 'daemon-reload)
-     (cli:subcommand 'daemon-reexec))))
+     (cli:subcommand 'daemon-reexec)))

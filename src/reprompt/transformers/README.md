@@ -44,16 +44,17 @@ None ship currently: the package carries the specification library and
 the hook plumbing, and every call passes through unchanged until a
 transformer `.rkt` is dropped into this directory.
 
-## The `cli/` library
+## The `cli/` specifications
 
-`cli/` is not a transformer: it is the library transformers are
-written against. A *command interface*
-is a declarative specification of a bash command's CLI (flags, options,
-operands, subcommands), written in the external
-[`cli-spec`](https://github.com/riz0id/cli-syntax) language and lowered
-by `command->interface` (`cli/lower.rkt`) into the model that drives
-parsing an intercepted command into a structured invocation, querying
-and editing it, and rendering it back to a faithful command string. See
-`cli/README.md`; bundled interfaces for grep,
-rg, cd, ls, curl, sed, awk, launchctl, systemctl, wc, git, and gh
-live in `cli/specs/`.
+`cli/` is not a transformer: it holds *command interface
+specifications* — declarative descriptions of bash commands' CLIs
+(flags, options, operands, subcommands) written in the external
+[`cli-spec`](https://github.com/riz0id/cli-syntax) language, from which
+`cli-spec`'s interpretations (parsing, help) derive. See
+`cli/README.md`; bundled specs for grep,
+rg, cd, ls, curl, sed, find, awk, mv, cp, launchctl, systemctl, wc,
+git, and gh live in `cli/specs/`. `cli/transforms/` holds checked
+spec-to-spec mappings written in the external
+[`cli-spec-transform`](https://github.com/riz0id/cli-syntax-transformer)
+language (`grep->rg` currently); both collections are vendored into the
+`racket-with-rash` Nix layer.

@@ -3,14 +3,12 @@
 ;; longs. Short options whose meaning diverges between the two about taking
 ;; a value (-w, -T, -I) are deliberately absent so they reject instead of
 ;; misparsing on one platform or the other.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide ls-cli)
 
 (define ls-cli
-  (command->interface
-   (cli:cmd 'ls
+  (cli:cmd 'ls
      (cli:flag 'all #:aliases '(-a --all))
      (cli:flag 'almost-all #:aliases '(-A --almost-all))
      (cli:flag 'long #:aliases '(-l))
@@ -41,4 +39,4 @@
      (cli:flag 'time-style 'string #:aliases '(--time-style))
      (cli:flag 'sort-by 'string #:aliases '(--sort))
      (cli:flag 'group-directories-first #:aliases '(--group-directories-first))
-     (cli:arg 'paths 'string #:arity '*))))
+     (cli:arg 'paths 'string #:arity '*)))

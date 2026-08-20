@@ -1,136 +1,96 @@
-# cli — command interfaces for syntax transformers
+# cli — command interface specifications
 
-A library for writing **command interfaces**: declarative Racket
-specifications of a bash command's CLI. An interface drives three things a
-transformer needs — parsing an intercepted command's words into a structured
-invocation, querying and editing that structure, and rendering it back to a
-faithful command string. The library's scope is only command interfaces;
-transformer plumbing (argv, exit codes) stays in the transformer scripts.
-
-Transformers require `cli/main.rkt` plus the specs they use:
+Declarative specifications of bash commands' CLIs, written in the
+external [`cli-spec`](https://github.com/riz0id/cli-syntax) language
+(Racket collection `cli-spec`, vendored offline into the
+`racket-with-rash` layer by `nix/racket-with-rash.nix`). A spec is a
+complete, machine-readable description of one command's surface —
+subcommands, typed flags, positionals — from which `cli-spec`'s
+interpretations (`parse-argv`, `spec->help`, and whatever a consumer
+builds over the AST) are derived.
 
 ```racket
-(require "cli/main.rkt" "cli/specs/grep.rkt")
+(require (prefix-in cli: cli-spec)   ; prefix: cli-spec's `rest` shadows racket/list
+         "specs/gh.rkt")
 
-(define registry (make-spec-registry (list grep-cli)))
-(transform-line command registry
-                (lambda (spec inv)
-                  (and (invocation-has-flag? inv 'recursive)
-                       (invocation-set-head (invocation-remove-flag inv 'recursive)
-                                            "rg"))))
-;; -> the rewritten command string, or #f when nothing changed or the
-;;    line was rejected
+(cli:parse-argv gh-cli '("issue" "ls" "-s" "open"))
+; ⇒ (parse-ok '(gh issue list) (hash 'state "open"))
 ```
 
-## Writing an interface
-
-Interfaces are authored in the external
-[`cli-spec`](https://github.com/riz0id/cli-syntax) language and lowered
-into this library's internal model by `command->interface` (`lower.rkt`):
+## Writing a spec
 
 ```racket
-(require (prefix-in cli: cli-spec) "cli/main.rkt")
-
 (define grep-cli
-  (command->interface
-   (cli:cmd 'grep
-     (cli:flag 'recursive #:aliases '(-r --recursive))       ; switch, clusterable
-     (cli:flag 'pattern 'string #:aliases '(-e --regexp)
-               #:repeat 'list)                               ; valued, repeatable
-     (cli:flag 'color (cli:enum "never" "auto" "always")     ; enumerated value
-               #:aliases '(--color) #:arity '?)              ; value optional, attached only
-     (cli:arg 'args 'string #:arity '*)                      ; operands: 1 | '? | '*
-     (cli:subcommand 'restart                                ; systemctl-style
-       (cli:arg 'units 'string #:arity '*)))))
+  (cli:cmd 'grep
+    (cli:flag 'recursive #:aliases '(-r --recursive))       ; switch, clusterable
+    (cli:flag 'pattern 'string #:aliases '(-e --regexp)
+              #:repeat 'list)                               ; valued, repeatable
+    (cli:flag 'color (cli:enum "never" "auto" "always")     ; enumerated value
+              #:aliases '(--color) #:arity '?)              ; value optional, attached only
+    (cli:arg 'args 'string #:arity '*)                      ; operands: 1 | '? | '*
+    (cli:subcommand 'restart                                ; systemctl-style
+      (cli:arg 'units 'string #:arity '*))))
 ```
 
-The lowering accepts the subset of `cli-spec` the transformers give
-semantics to and raises on anything outside it (see `lower.rkt`'s header
-for the full table):
+Conventions the bundled specs follow:
 
-- A command has **one head**: `(cli:cmd 'grep ...)` describes `grep` and
+- **One head per command.** `(cli:cmd 'grep ...)` describes `grep` and
   nothing else — a command's head uniquely identifies it, so `egrep` or
   `gawk` would be commands (and specs) of their own.
+- **Omit, never guess.** Any option whose value-taking behavior differs
+  between implementations is left out entirely, so an invocation using
+  it fails to parse instead of misparsing (the grep `-Z` precedent).
+- Ids are kebab-case symbols derived from the long alias; aliases are
+  given explicitly (short then long) and keep their declared order.
+  Alias symbols that read as numbers are pipe-quoted (`|-i|`, `|-I|`,
+  `|-0|`, `|-1|`, `|-#|`).
 - A `cli:flag` with no type is a boolean switch; with a type it takes a
-  value. Only `'string` and `cli:enum` types lower; `#:repeat 'list`
-  marks a repeatable option; `#:arity '?` makes the value optional, and
-  an optional value never consumes the next word (`--color=x` / `-i.bak`
-  attached forms only).
-- Aliases are given explicitly as symbols and keep their declared order
-  (edited arguments render as the first long alias, else the first
-  short). `-x` is a short alias (clusterable, attachable value), `--xxx`
-  a long one; `cli-spec` admits no other shape, so literal-alias dialects
-  like find's `-name`/`!` are out of scope.
-- Operand slots are filled in declared order; at most one slot may be
-  variadic, and a single `'*` slot absorbs the surplus words. There are
-  no operand guards: when which-word-is-which depends on the flags
-  present (grep's pattern vs. its first file), the spec declares one
-  slot and let the consumer draw the boundary over the slot's words.
-- `cli:subcommand` nests to any depth (`gh issue list`), may carry
-  `#:aliases` (gh's `ls`, which parses verbatim but names the canonical
-  path), and the enclosing interfaces' flags and options stay matchable
-  after the subcommand words.
+  value. `#:repeat 'list` marks a repeatable option; `#:arity '?` makes
+  the value optional (attached forms only); `cli:enum` declares every
+  enumerated value vocabulary.
+- Operand slots fill in declared order; at most one may be variadic,
+  and nothing required may follow it. `cli:subcommand` nests to any
+  depth (`gh issue list`) and may carry `#:aliases` (gh's `ls`, which
+  parses verbatim but names the canonical path).
 - Spec mistakes are caught at construction: `cli:cmd` runs `cli-spec`'s
   coherence pass (duplicate names, colliding spellings, two variadic
-  positionals), and the lowering rejects every construct it cannot give
-  faithful semantics to.
+  positionals) and raises with a path into the spec.
 
-Bundled interfaces live in `specs/` — grep, rg, cd, ls, curl, sed,
-awk, launchctl, systemctl, wc, git, gh — with `specs/all.rkt` providing
-`all-interfaces` and a ready-made `default-registry`. They stress the
-model: nested subcommands (gh), subcommands with top-level globals
-(systemctl), attached-only optional values (sed `-i`), enumerated values
-(grep `--color`), and heavily repeatable options (curl).
+## Bundled specs
 
-## Guarantees
+`specs/` holds grep, rg, cd, ls, curl, sed, find, awk, mv, cp,
+launchctl, systemctl, wc, git, and gh — each `#lang racket/base`, requiring
+`cli-spec`, providing one `<command>-cli` value, with a header comment
+stating the scope and what is deliberately omitted. `specs/all.rkt`
+re-exports them all plus the `all-interfaces` list.
 
-- **Reject, never corrupt.** Every parsing layer returns a `reject` value
-  instead of guessing. A transformer maps rejection to a non-zero exit, so
-  the original command is preserved whenever the library is not certain it
-  can reproduce the command faithfully.
-- **Verbatim fidelity.** Each parsed word carries its exact source
-  substring; untouched arguments render byte-for-byte (`007` stays `007`),
-  and a structural coverage check over source locations rejects any line the
-  linea reader silently truncated or rewrote. Only synthesized or edited
-  arguments render canonically (first long alias, else first short).
-- **Unknown arguments reject by default.** An unknown `-x` might consume
-  the word after it — the exact ambiguity that corrupts commands. The
-  `'permissive` policy passes through nothing but self-contained `--x=v`
-  words.
-- Pipelines (`|`), connector chains (`&&`, `||`), a trailing `&`, and
-  redirects (`> f`, `>out`, `2>&1`) are handled around the specs:
-  transformers see per-stage argument words, and redirects re-attach on
-  render (after the stage's arguments, original relative order preserved).
+## Transforms
 
-## Known-reject constructs
+`transforms/` holds checked mappings between bundled specs, written in
+the external
+[`cli-spec-transform`](https://github.com/riz0id/cli-syntax-transformer)
+language (also vendored into the `racket-with-rash` layer). A
+`define-transformer` form names one spec as source and another as
+target and must say what happens to *every* source flag, positional,
+and subcommand — mapped, merged, kept, or dropped with a reason — or it
+fails to expand; `transform-argv` then rewrites a source invocation
+into a target invocation, reporting any dropped item the invocation
+used. Both spec modules are required at phases 0 and 1 via the
+library's `for-transform` require form (in its own `require`, since a
+require transformer cannot be used by the form that imports it):
 
-The linea reader mangles some shell syntax silently, so the safe reader
-refuses it up front; commands containing these are left unrewritten:
+```racket
+(require cli-spec-transform)
+(require (for-transform "../specs/grep.rkt" "../specs/rg.rkt"))
 
-| construct | reason |
-|---|---|
-| `'single quotes'`, `` `backticks` `` | read as Racket quote forms that can swallow following words |
-| `;` | comments out the rest of the line |
-| `\` (outside `\"`/`\\` in strings) | escapes are consumed by the reader |
-| `(` `)` `[` `]` `{` `}` `«` `»` | become nested structure, not words |
-| `$(...)`, `${...}` | split into `$` + structure (bare `$VAR` is fine) |
-| `#` | datum syntax or a read error |
-| embedded newlines | only one line is read |
-| `a & b` | `&` separates commands (a trailing `&` is fine) |
+(transform-argv grep->rg '("-rn" "--include" "*.py" "todo" "src"))
+; ⇒ (xform-ok '("--line-number" "--glob" "*.py" "todo" "src") '())
+```
 
-Practical consequences: single-quoted awk/sed
-programs always reject (safely — the command runs unmodified); double-quoted
-arguments, `$VAR`, globs, and URLs all round-trip.
+Bundled transforms:
 
-## Modules
-
-| module | provides |
-|---|---|
-| `words.rkt` | `safe-read-line`, `word`/`reject` structs, `text->word`, `render-words` |
-| `line.rkt` | `parse-line`, `render-line`, `stage`/`pipeline`/`cmd-line`, `stage-head`, `map-stages` |
-| `spec.rkt` | internal interface structs, runtime constructors and validation, `make-spec-registry` |
-| `lower.rkt` | `command->interface` — lowers a `cli-spec` command into the internal model |
-| `parse.rkt` | `parse-invocation`, arg structs, invocation queries (`invocation-has-flag?`, ...) |
-| `invocation.rkt` | edits (`invocation-set-head`, `-add/remove/set-option`, `-rename-arg`) and `render-invocation` |
-| `toolcall.rkt` | `parse-bash-envelope`, `render-bash-call`, `render-mcp-call` |
-| `main.rkt` | facade re-exporting all of the above plus `transform-line` |
+- `transforms/grep-to-rg.rkt` — `grep->rg`, grep invocations onto
+  ripgrep. Patterns cross verbatim (no regex-dialect translation);
+  grep's filename filters merge into rg globs, `--color`/`--colour`
+  collapse onto rg's mandatory-value `--color`, and everything rg does
+  by default (`-r`, `-I`, `-d`/`-D`) is an explicit drop.

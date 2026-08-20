@@ -16,14 +16,12 @@
 ;; single positional per subcommand: diff's optional TARGET and show's
 ;; optional REV; a second positional (a pathspec, a second revision)
 ;; rejects at parse.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide git-cli)
 
 (define git-cli
-  (command->interface
-   (cli:cmd 'git
+  (cli:cmd 'git
      (cli:subcommand 'status)
      (cli:subcommand 'diff
        (cli:flag 'staged #:aliases '(--staged --cached))
@@ -32,4 +30,4 @@
        (cli:arg 'revision 'string #:arity '?))
      (cli:subcommand 'branch
        (cli:flag 'remotes #:aliases '(-r --remotes))
-       (cli:flag 'all #:aliases '(-a --all))))))
+       (cli:flag 'all #:aliases '(-a --all)))))

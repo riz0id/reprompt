@@ -5,14 +5,12 @@
 ;; path depends on -e/-f/--files, a distinction cli-spec's guardless
 ;; positionals cannot draw, so a consumer needing it must draw the boundary
 ;; over the slot's words itself (rendering is verbatim either way).
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide rg-cli)
 
 (define rg-cli
-  (command->interface
-   (cli:cmd 'rg
+  (cli:cmd 'rg
      (cli:flag 'ignore-case #:aliases '(|-i| --ignore-case))
      (cli:flag 'smart-case #:aliases '(-S --smart-case))
      (cli:flag 'case-sensitive #:aliases '(-s --case-sensitive))
@@ -71,4 +69,4 @@
      (cli:flag 'color (cli:enum "never" "auto" "always" "ansi")
                #:aliases '(--color))
      (cli:flag 'colors 'string #:aliases '(--colors) #:repeat 'list)
-     (cli:arg 'args 'string #:arity '*))))
+     (cli:arg 'args 'string #:arity '*)))

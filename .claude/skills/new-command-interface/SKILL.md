@@ -31,9 +31,8 @@ takes a value — those are omitted in step 3.
 ## 2. Read the language and two exemplars
 
 The language reference is `src/reprompt/transformers/cli/README.md`
-("Writing an interface": the `cli-spec` surface, the supported subset,
-guarantees, known-reject constructs) plus the lowering table in
-`cli/lower.rkt`'s header. Then read the two bundled specs closest to
+("Writing a spec": the `cli-spec` surface and the conventions the
+bundled specs follow). Then read the two bundled specs closest to
 the command's shape:
 
 | shape | exemplar |
@@ -42,13 +41,14 @@ the command's shape:
 | nested subcommands with aliases | `specs/gh.rkt` |
 | subcommands with top-level globals | `specs/systemctl.rkt`, `specs/launchctl.rkt` |
 | attached-only optional values (`-i.bak`) | `specs/sed.rkt` |
+| an uninterpreted expression tail (`cli:rest`) | `specs/find.rkt` |
 
 ## 3. Author `cli/specs/<command>.rkt`
 
 Module shape: `#lang racket/base`,
-`(require (prefix-in cli: cli-spec) "../main.rkt")`,
+`(require (prefix-in cli: cli-spec))`,
 `(provide <command>-cli)`, one
-`(define <command>-cli (command->interface (cli:cmd '<command> ...)))`
+`(define <command>-cli (cli:cmd '<command> ...))`
 form, with a header comment stating the scope and what is deliberately
 omitted.
 
@@ -60,10 +60,10 @@ The checklist — each item is load-bearing:
   Reject-never-corrupt extends to authoring.
 - **One head per command.** `cli:cmd` names exactly the command the
   spec describes; variant binaries (`egrep`, `gawk`) are not aliases of
-  it. The lowering rejects specs that cannot be given faithful
-  semantics — stay inside the subset in `lower.rkt`'s header ('string
-  and `cli:enum` types, arities `1`/`'?`/`'*`, no guards, no groups,
-  no rest clauses).
+  it. The bundled specs stay inside a conservative subset of the
+  language: `'string` and `cli:enum` types, arities `1`/`'?`/`'*`, no
+  groups; a `cli:rest` clause only where the command genuinely has an
+  uninterpreted tail in its own dialect (find's expression).
 - **Ids** are kebab-case symbols derived from the long alias
   (`--files-with-matches` → `files-with-matches`; short-only options
   get a descriptive name). Give `#:aliases` explicitly, short then
@@ -79,9 +79,8 @@ The checklist — each item is load-bearing:
   accumulates; `#:arity '?` only where the value is genuinely
   omissible (the value then never consumes the next word — attached
   forms only); and a `cli:enum` type for **every** enumerated value
-  vocabulary — downstream value compatibility is derived from these
-  enumerations at parse and re-parse time, so an undeclared enum
-  silently widens the accepted language.
+  vocabulary — an undeclared enum silently widens the accepted
+  language.
 - **Operands** (`cli:arg`, type `'string`) in positional order with
   arity `1`, `'?`, or `'*` (at most one variadic slot per level, and
   nothing required after it). There are no operand guards: when
@@ -100,13 +99,14 @@ The checklist — each item is load-bearing:
 
 ## 5. Validate proportionately
 
-Validation is compile plus round-trip:
+Validation is compile plus parse:
 
 - compile: `nix build .#racket-with-rash --no-link --print-out-paths`,
-  then `<store-path>/bin/racket -e '(require (file ".../cli/specs/<command>.rkt"))'`;
-- round-trip a handful of representative real command lines through
-  `parse-invocation` and `render-invocation`, one per tricky feature
-  the spec uses: a short cluster, an `=`-attached value, an enum value,
-  a subcommand (nested or aliased) as applicable. Keep example
-  lines inside the safe reader's language (no single quotes,
-  backslashes, `;`, parens, or braces outside double-quoted strings).
+  then `<store-path>/bin/racket -e '(require (file ".../cli/specs/<command>.rkt"))'`
+  — `cli:cmd` runs the whole-spec coherence pass at construction, so a
+  loading module is a checked spec;
+- parse a handful of representative real argv lists through
+  `cli-spec`'s `parse-argv`, one per tricky feature the spec uses: a
+  short cluster, an `=`-attached value, an enum value, a subcommand
+  (nested or aliased) as applicable, checking the returned path and
+  value hash.

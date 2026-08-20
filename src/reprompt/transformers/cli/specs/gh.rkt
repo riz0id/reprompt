@@ -19,14 +19,12 @@
 ;; of api's flags and non-"user" endpoints. `-R`/`--repo` takes the
 ;; full `[HOST/]OWNER/REPO` (or URL) spelling. The state enumerations
 ;; are gh's own (issues: open|closed|all; prs: open|closed|merged|all).
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide gh-cli)
 
 (define gh-cli
-  (command->interface
-   (cli:cmd 'gh
+  (cli:cmd 'gh
      (cli:subcommand 'issue
        (cli:subcommand 'list #:aliases '(ls)
          (cli:flag 'repo 'string #:aliases '(-R --repo))
@@ -38,4 +36,4 @@
          (cli:flag 'state (cli:enum "open" "closed" "merged" "all")
                    #:aliases '(-s --state))))
      (cli:subcommand 'api
-       (cli:subcommand 'user)))))
+       (cli:subcommand 'user))))

@@ -1,8 +1,9 @@
-# Racket (full distribution) plus the vendored rash package closure and
-# the cli-spec interface-specification language, installed offline into
-# an immutable user-scope layer ($out/addon).
+# Racket (full distribution) plus the vendored rash package closure, the
+# cli-spec interface-specification language, and the cli-spec-transform
+# mapping language, installed offline into an immutable user-scope layer
+# ($out/addon).
 #
-# Only these six packages need vendoring: every other dependency they
+# Only these seven packages need vendoring: every other dependency they
 # declare (base, scribble-lib, scribble-doc, racket-doc, rackunit-lib,
 # readline-lib, sandbox-lib) ships in installation scope of the full
 # Racket distribution that nixpkgs' `racket` builds, so
@@ -39,14 +40,24 @@ let
     rev = "487dfc49ff3268b76dea9aa2011ddfe585da2672";
     hash = "sha256-Ia+wFnUSKMfhot0f8I8TFCPtGEdwy9gnnrnBEgNvSt0=";
   };
-  # The interface-specification language the cli/ transformer library's
-  # specs are written in. Collection name is cli-spec (see its info.rkt),
-  # so it must be staged under that name. Depends only on base.
+  # The interface-specification language the cli/specs command
+  # specifications are written in. Collection name is cli-spec (see its
+  # info.rkt), so it must be staged under that name. Depends only on base.
   cliSpecSrc = fetchFromGitHub {
     owner = "riz0id";
     repo = "cli-syntax";
     rev = "1cfed7b40f91210c3b92d676671abb5f5b47b96c";
     hash = "sha256-sTJkWSsRGGIt56PRr9hoWi+ez5CjbCUTXtamlfDrseo=";
+  };
+  # Pattern-based transformers between cli-spec specifications (the
+  # cli/transforms mappings are written in it). Collection name is
+  # cli-spec-transform (see its info.rkt); depends on base and cli-spec,
+  # and its rackunit-lib build-dep ships in the full distribution.
+  cliSpecTransformSrc = fetchFromGitHub {
+    owner = "riz0id";
+    repo = "cli-syntax-transformer";
+    rev = "4b125f9512f8b10f814bb884c7ad27c41435882a";
+    hash = "sha256-/J11myYw2+VPI5hby7z9yCEeAQ9B59YRw+XVcd1gq6I=";
   };
 in
 stdenvNoCC.mkDerivation {
@@ -69,18 +80,19 @@ stdenvNoCC.mkDerivation {
     cp -R ${rashRepo}/linea staging/linea
     cp -R ${rashRepo}/rash staging/rash
     cp -R ${cliSpecSrc} staging/cli-spec
+    cp -R ${cliSpecTransformSrc} staging/cli-spec-transform
     chmod -R u+w staging
 
     # Install into an immutable user-scope layer under $out. Directory
     # sources install as links by default, so --copy is mandatory; one
-    # invocation lets the five packages satisfy each other's deps.
+    # invocation lets the packages satisfy each other's deps.
     export HOME=$(mktemp -d)
     export PLTADDONDIR=$out/addon
     ${racket}/bin/raco pkg install \
       --batch --deps fail --no-docs --copy --scope user \
       --jobs "''${NIX_BUILD_CORES:-1}" \
       staging/udelim staging/basedir staging/shell-pipeline \
-      staging/linea staging/rash staging/cli-spec
+      staging/linea staging/rash staging/cli-spec staging/cli-spec-transform
 
     runHook postBuild
   '';
@@ -105,6 +117,7 @@ stdenvNoCC.mkDerivation {
     printf '#lang rash\necho hi from rash\n' > t.rkt
     $out/bin/racket t.rkt | grep -q "hi from rash"
     $out/bin/racket -e '(require cli-spec) (void (cmd (quote ok)))'
+    $out/bin/racket -e '(require cli-spec-transform) (void transform-argv)'
     runHook postInstallCheck
   '';
 

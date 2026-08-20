@@ -1,14 +1,12 @@
 #lang racket/base
 ;; curl(1) -- the everyday transfer flags and the heavily repeatable request
 ;; options (-H, -d, -F, -o). URLs are a 'many operand.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide curl-cli)
 
 (define curl-cli
-  (command->interface
-   (cli:cmd 'curl
+  (cli:cmd 'curl
      (cli:flag 'silent #:aliases '(-s --silent))
      (cli:flag 'show-error #:aliases '(-S --show-error))
      (cli:flag 'location #:aliases '(-L --location))
@@ -66,4 +64,4 @@
      (cli:flag 'output-dir 'string #:aliases '(--output-dir))
      (cli:flag 'dump-header 'string #:aliases '(-D --dump-header))
      (cli:flag 'limit-rate 'string #:aliases '(--limit-rate))
-     (cli:arg 'urls 'string #:arity '*))))
+     (cli:arg 'urls 'string #:arity '*)))

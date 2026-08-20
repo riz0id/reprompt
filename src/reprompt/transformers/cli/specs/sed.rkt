@@ -7,14 +7,12 @@
 ;; -e/-f supplies the script, the first file word fills the slot instead
 ;; (rendering stays verbatim, so the emitted words are unchanged), and a
 ;; -e/-f invocation with no operand words rejects and runs as real sed.
-(require (prefix-in cli: cli-spec)
-         "../main.rkt")
+(require (prefix-in cli: cli-spec))
 
 (provide sed-cli)
 
 (define sed-cli
-  (command->interface
-   (cli:cmd 'sed
+  (cli:cmd 'sed
      (cli:flag 'quiet #:aliases '(-n --quiet --silent))
      (cli:flag 'extended-regexp #:aliases '(-E -r --regexp-extended))
      (cli:flag 'separate #:aliases '(-s --separate))
@@ -26,4 +24,4 @@
      (cli:flag 'script-file 'string #:aliases '(-f --file) #:repeat 'list)
      (cli:flag 'in-place 'string #:aliases '(|-i| --in-place) #:arity '?)
      (cli:arg 'script 'string)
-     (cli:arg 'files 'string #:arity '*))))
+     (cli:arg 'files 'string #:arity '*)))

@@ -46,8 +46,8 @@ let
   cliSpecSrc = fetchFromGitHub {
     owner = "riz0id";
     repo = "cli-syntax";
-    rev = "1cfed7b40f91210c3b92d676671abb5f5b47b96c";
-    hash = "sha256-sTJkWSsRGGIt56PRr9hoWi+ez5CjbCUTXtamlfDrseo=";
+    rev = "26425122b1aadf0a504ef05234727a427e21f495";
+    hash = "sha256-Ys4b93QVnKRsXYzeR5g1EC3ULCoUM9ZW1VcrBSicqrg=";
   };
   # Pattern-based transformers between cli-spec specifications (the
   # cli/transforms mappings are written in it). Collection name is
@@ -56,8 +56,8 @@ let
   cliSpecTransformSrc = fetchFromGitHub {
     owner = "riz0id";
     repo = "cli-syntax-transformer";
-    rev = "abe29c754882ecacf7e287010a8a3404c571169b";
-    hash = "sha256-yz4VarGwB/jiblCnWrPp+lColoFm142Rf9i6U4X9dco=";
+    rev = "13be7ef63569821ea0be530010e0c34f598d52e8";
+    hash = "sha256-HZU68ahvNurHi65r07BnNDFJlZdRH8w0Ff7+VZCJW5k=";
   };
 in
 stdenvNoCC.mkDerivation {

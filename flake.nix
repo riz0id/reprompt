@@ -75,6 +75,43 @@
           // overrides
         );
 
+      # One dedicated VM fuzz test per transform, keyed by the transform's
+      # source specification. Each entry names the transform module and
+      # its provided id plus the two real tools the extensional-equality
+      # check runs; tests/fuzz-vm.nix and tests/run-fuzz.sh derive the
+      # rest. The corpus is generated fresh from system entropy on every
+      # run (no seeds anywhere), so these run as apps, never as pure
+      # checks. Adding a transform's test means adding an entry here,
+      # nothing else.
+      fuzzTests = {
+        grep = {
+          transform = "cli/transforms/grep-to-rg.rkt";
+          id = "grep->rg";
+          tools = pkgs: [
+            pkgs.gnugrep
+            pkgs.ripgrep
+          ];
+          count = 500;
+        };
+        sed = {
+          transform = "cli/transforms/sed-to-rg.rkt";
+          id = "sed->rg";
+          tools = pkgs: [
+            pkgs.gnused
+            pkgs.ripgrep
+          ];
+          count = 300;
+        };
+      };
+
+      mkFuzzTest =
+        system: name: cfg:
+        import ./tests/fuzz-vm.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          inherit nixpkgs name;
+          inherit (cfg) tools;
+        };
+
       # The bash-metadata variant of the VM test: same guest stack, but the
       # agent prompts for a Bash command and a Write, and the host proxy
       # tags only the Bash call (tests/meta_hook_bash.py).
@@ -181,6 +218,37 @@
                 );
               };
 
+            # One app per fuzz registry entry, both platforms: the wrapper
+            # exports the store paths and per-transform parameters that
+            # tests/run-fuzz.sh consumes. Generation happens at run time
+            # with fresh entropy (host racket layer), so the fuzz can
+            # never live in the pure checks — the checks only build the
+            # driver.
+            mkFuzzApp = name: cfg: {
+              type = "app";
+              program = nixpkgs.lib.getExe (
+                pkgs.writeShellApplication {
+                  name = "reprompt-fuzz-${name}-test";
+                  runtimeInputs = [
+                    pkgs.nix
+                    pkgs.coreutils
+                  ]
+                  ++ nixpkgs.lib.optionals isDarwin [ pkgs.openssh ];
+                  text = ''
+                    export REPROMPT_FLAKE=${self}
+                    export REPROMPT_HOST_SYSTEM=${system}
+                    ${nixpkgs.lib.optionalString isDarwin "export REPROMPT_RUN_BUILDER=${nixpkgs.lib.getExe linuxBuilder.run-builder}"}
+                    export REPROMPT_RACKET=${mkRacketWithRash pkgs}/bin/racket
+                    export REPROMPT_FUZZ_NAME=${name}
+                    export REPROMPT_FUZZ_TRANSFORM=${cfg.transform}
+                    export REPROMPT_FUZZ_ID='${cfg.id}'
+                    export REPROMPT_FUZZ_COUNT=${toString cfg.count}
+                    exec ${pkgs.runtimeShell} ${self}/tests/run-fuzz.sh
+                  '';
+                }
+              );
+            };
+
           in
           {
             # One command runs the full test:
@@ -254,6 +322,15 @@
                 };
 
           }
+          # One fuzz-test app per transform: extensional equality checked
+          # inside a hermetic guest VM over a corpus generated fresh on
+          # the host each run. fuzz-test aliases the grep instance.
+          // nixpkgs.lib.mapAttrs' (
+            name: cfg: nixpkgs.lib.nameValuePair "fuzz-test-${name}" (mkFuzzApp name cfg)
+          ) fuzzTests
+          // {
+            fuzz-test = mkFuzzApp "grep" fuzzTests.grep;
+          }
         )
       );
 
@@ -265,7 +342,12 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
-        {
+        # Build-only fuzz drivers: the fuzz itself needs run-time entropy
+        # (a fresh corpus per run), so it runs via apps.fuzz-test-<name>.
+        nixpkgs.lib.mapAttrs' (
+          name: cfg: nixpkgs.lib.nameValuePair "fuzz-${name}" (mkFuzzTest system name cfg).driver
+        ) fuzzTests
+        // {
           integration = (integrationTest system { }).driver;
           integration-bash = (integrationTest system bashTestArgs).driver;
           integration-rewrite = (integrationTest system rewriteTestArgs).driver;
@@ -362,6 +444,18 @@
       integrationGuestRewrite = nixpkgs.lib.genAttrs testSystems (
         system: (integrationTest system rewriteTestArgs).nodes.machine.system.build.toplevel
       );
+
+      # Guest closures of the per-transform fuzz tests, keyed
+      # fuzzGuests.<name>.<system>; built on the Linux builder by
+      # tests/run-fuzz.sh on Darwin hosts. No model derivation: a fuzz
+      # guest needs only the two real tools and the checker's shell
+      # utilities.
+      fuzzGuests = nixpkgs.lib.mapAttrs (
+        name: cfg:
+        nixpkgs.lib.genAttrs testSystems (
+          system: (mkFuzzTest system name cfg).nodes.machine.system.build.toplevel
+        )
+      ) fuzzTests;
 
       # The model weights as a host-system derivation. The output path is
       # content-addressed and identical to the guest-side fetchurl in

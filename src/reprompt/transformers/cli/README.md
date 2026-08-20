@@ -23,12 +23,12 @@ builds over the AST) are derived.
 (define grep-cli
   (cli:cmd 'grep
     (cli:flag 'recursive #:aliases '(-r --recursive))       ; switch, clusterable
-    (cli:flag 'regexp 'string #:aliases '(-e --regexp)
+    (cli:flag 'regexp 'regex #:aliases '(-e --regexp)
               #:repeat 'list)                               ; valued, repeatable
     (cli:flag 'color (cli:enum "never" "auto" "always")     ; enumerated value
               #:aliases '(--color) #:arity '?)              ; value optional, attached only
-    (cli:arg 'pattern 'string)                              ; operands: 1 | '? | '*
-    (cli:arg 'files 'string #:arity '*)
+    (cli:arg 'pattern 'regex)                               ; operands: 1 | '? | '*
+    (cli:arg 'files 'path #:arity '*)
     (cli:subcommand 'restart                                ; systemctl-style
       (cli:arg 'units 'string #:arity '*))))
 ```
@@ -49,6 +49,13 @@ Conventions the bundled specs follow:
   value. `#:repeat 'list` marks a repeatable option; `#:arity '?` makes
   the value optional (attached forms only); `cli:enum` declares every
   enumerated value vocabulary.
+- **Types are informative, not just `'string`.** cli-spec's atom
+  vocabulary (`'regex`, `'path`, `'file`, `'dir`, `'glob`, `'nat`, ...)
+  is used wherever it applies: patterns are `'regex`, operand paths are
+  `'path`, context counts are `'nat`. Typed items reject bad values at
+  parse (`grep -A banana` fails) and drive the fuzz suite's typed
+  invocation generation (below). A value language of its own gets a
+  `cli:custom` type — sed scripts are `'sed-script` in `sed.rkt`.
 - Operand slots fill in declared order; at most one may be variadic,
   and nothing required may follow it. `cli:subcommand` nests to any
   depth (`gh issue list`) and may carry `#:aliases` (gh's `ls`, which
@@ -105,9 +112,70 @@ Bundled transforms:
   by default (`-r`, `-I`, `-d`/`-D`) is an explicit drop.
 - `transforms/sed-to-rg.rkt` — `sed->rg`, the `sed -n '/pattern/p'`
   print-matching-lines idiom onto ripgrep. A `#:when` pattern guard
-  admits only quiet-mode invocations with no `-e`/`-f`/`-i` (anything
-  else is `xform-unmatched`); the script's `/regexp/p` shape is
-  checked at rewrite time by the `script`→`pattern` `#:value`
-  function, which raises — treated as not-rewritable — on any other
-  script, including patterns using BRE-specific escapes that would
-  change meaning under rg's ERE-like engine.
+  admits only quiet-mode invocations with no `-e`/`-f`/`-i` and no
+  `-z` (sed `-z` and rg `--null-data` frame NUL-separated output
+  differently at the byte level), and requires at least one file
+  operand — anything else is `xform-unmatched`. Two `#:value`
+  functions narrow further at rewrite time, raising (treated as
+  not-rewritable) when: the script is not exactly a `/regexp/p` print
+  program whose pattern is dialect-neutral — identical meaning in GNU
+  BRE, GNU ERE, POSIX mode, and rg's engine, since patterns cross
+  verbatim with no dialect translation; or a file operand is a
+  directory on the filesystem when the rewrite runs — sed read-errors
+  there where rg recurses. Every rewrite carries `--no-filename` (an
+  `emit` clause — cli-spec-transform's target-only-constant form):
+  sed prints bare matched lines, and rg would otherwise prefix
+  `file:` when given several paths.
+
+## Differential fuzzing
+
+Every transform claims semantic preservation: a rewritten command must
+behave exactly like the original. The fuzz suite tests that claim
+extensionally, per transform, inside a dedicated QEMU/NixOS VM
+containing only the two real tools:
+
+```
+nix run .#fuzz-test-grep     # grep ~ (grep->rg grep)
+nix run .#fuzz-test-sed      # sed  ~ (sed->rg sed)
+```
+
+1. **Generate** (host): `tests/fuzz/gen-corpus.rkt` samples random
+   invocations of the source command from its spec via cli-spec's
+   `random-invocation` interpretation — typed values from the declared
+   types, path draws materializing fixture files/directories (or
+   deliberately dangling), regex draws carrying witness strings that
+   seed file contents. Each draw's fixture tree is materialized first
+   and the transform then runs from inside it, so rewrite-time
+   filesystem checks observe exactly the tree the commands will run
+   over. The transform itself is the only domain oracle: refused draws
+   (`xform-unmatched`, parse errors, raising `#:value` functions) are
+   discarded — their fixture tree scrapped — and redrawn, so every
+   corpus case is an equivalence case; accepted draws with drop
+   warnings stay — each `(drop "reason")` is a semantic claim under
+   test.
+2. **Isolate**: the corpus is copied into a network-less guest VM whose
+   packages are the source tool, the target tool, and the checker's
+   shell utilities. Nothing else crosses the boundary.
+3. **Check**: `tests/fuzz/check-cases.sh` runs both commands per case
+   over pristine fixture copies with an empty-regular-file stdin and
+   pinned environment, requiring equal stdout — byte-equal, or
+   sorted-line multisets that forgive only rg's nondeterministic
+   inter-file output ordering. Only the output is compared: exit codes
+   are not checked (the tools' exit taxonomies legitimately differ —
+   sed exits 0 on no match where rg exits 1), though both are shown in
+   failure reports as context.
+
+**There are no seeds.** The generator seeds from system entropy on
+every run and records nothing; each run explores new cases, so this is
+fuzzing rather than replayed unit cases. Failures cannot be
+regenerated — every report is self-contained instead (both commands,
+both exit codes, output diff, and the case's fixture tree with
+contents inline), and the runner keeps the corpus directory on
+failure. A red run is a real finding: either the transform's domain
+must narrow (a `#:when` guard, or a raising `#:value`/`#:by` function
+for value-dependent restrictions) or the divergence is documented and
+the transform withdrawn.
+
+Adding a transform's fuzz test is one entry in the `fuzzTests`
+registry in `flake.nix`: the transform module and id, the two guest
+tools, and a case count.

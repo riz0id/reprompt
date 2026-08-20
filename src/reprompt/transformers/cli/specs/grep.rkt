@@ -3,10 +3,13 @@
 ;; agree on. Options where BSD and GNU disagree about taking a value (-Z)
 ;; are deliberately absent so they reject instead of misparsing. The head is
 ;; grep alone: egrep and fgrep are their own commands, not alternative heads
-;; of this one. Operands are one 'many slot: whether the first word is the
-;; pattern or a file depends on -e/-f, a distinction cli-spec's guardless
-;; positionals cannot draw, so a consumer needing it must draw the boundary
-;; over the slot's words itself (rendering is verbatim either way).
+;; of this one. Operands are two named slots matching grep's grammar
+;; `grep PATTERN [FILE...]`: 'pattern (required) then 'files ('*). The
+;; pattern slot is required: when -e/-f supplies the pattern, the first
+;; file word fills the slot instead (word order is preserved, so
+;; rendering stays verbatim), and a -e/-f invocation with no operand
+;; words rejects -- a boundary cli-spec's guardless positionals cannot
+;; draw, so only a consumer reading the slots by name must draw it.
 (require (prefix-in cli: cli-spec))
 
 (provide grep-cli)
@@ -36,7 +39,7 @@
      (cli:flag 'text #:aliases '(-a --text))
      (cli:flag 'skip-binary #:aliases '(|-I|))
      (cli:flag 'null-data #:aliases '(-z --null-data))
-     (cli:flag 'pattern 'string #:aliases '(-e --regexp) #:repeat 'list)
+     (cli:flag 'regexp 'string #:aliases '(-e --regexp) #:repeat 'list)
      (cli:flag 'pattern-file 'string #:aliases '(-f --file) #:repeat 'list)
      (cli:flag 'after-context 'string #:aliases '(-A --after-context))
      (cli:flag 'before-context 'string #:aliases '(-B --before-context))
@@ -58,4 +61,5 @@
      (cli:flag 'colour (cli:enum "never" "no" "none" "auto" "tty" "if-tty"
                                  "always" "yes" "force")
                #:aliases '(--colour) #:arity '?)
-     (cli:arg 'args 'string #:arity '*)))
+     (cli:arg 'pattern 'string)
+     (cli:arg 'files 'string #:arity '*)))

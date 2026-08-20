@@ -64,9 +64,8 @@
   (flag perl-regexp => (flag 'pcre2))
   (flag text => keep)
   (flag skip-binary => (drop "rg skips binary files by default"))
-  (flag null-data
-        => (drop "no rg counterpart; rg -z means --search-zip, not NUL-separated lines"))
-  (flag pattern => keep)
+  (flag null-data => (flag 'null-data))
+  (flag regexp => keep)
   (flag pattern-file => keep)
   (flag after-context => keep)
   (flag before-context => keep)
@@ -84,4 +83,5 @@
          #:by (lambda (c cc)
                 (define v (if (eq? c #f) cc c))
                 (and v (color->rg v))))
-  (arg args => keep))
+  (arg pattern => keep)
+  (arg files => (arg 'paths)))

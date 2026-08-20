@@ -23,11 +23,12 @@ builds over the AST) are derived.
 (define grep-cli
   (cli:cmd 'grep
     (cli:flag 'recursive #:aliases '(-r --recursive))       ; switch, clusterable
-    (cli:flag 'pattern 'string #:aliases '(-e --regexp)
+    (cli:flag 'regexp 'string #:aliases '(-e --regexp)
               #:repeat 'list)                               ; valued, repeatable
     (cli:flag 'color (cli:enum "never" "auto" "always")     ; enumerated value
               #:aliases '(--color) #:arity '?)              ; value optional, attached only
-    (cli:arg 'args 'string #:arity '*)                      ; operands: 1 | '? | '*
+    (cli:arg 'pattern 'string)                              ; operands: 1 | '? | '*
+    (cli:arg 'files 'string #:arity '*)
     (cli:subcommand 'restart                                ; systemctl-style
       (cli:arg 'units 'string #:arity '*))))
 ```
@@ -64,6 +65,14 @@ launchctl, systemctl, wc, git, and gh — each `#lang racket/base`, requiring
 stating the scope and what is deliberately omitted. `specs/all.rkt`
 re-exports them all plus the `all-interfaces` list.
 
+`grep.rkt` and `rg.rkt` name their operand roles as separate slots —
+a required `pattern` then variadic `files`/`paths` — matching the
+`CMD PATTERN [FILE...]` grammar, so transforms map into each role by
+name and rendering order follows declaration order. When `-e`/`-f`
+supplies the pattern the first file word fills the required slot
+instead (a boundary guardless positionals cannot draw), but word
+order is preserved either way, so rendering stays verbatim.
+
 ## Transforms
 
 `transforms/` holds checked mappings between bundled specs, written in
@@ -84,7 +93,7 @@ require transformer cannot be used by the form that imports it):
 (require (for-transform "../specs/grep.rkt" "../specs/rg.rkt"))
 
 (transform-argv grep->rg '("-rn" "--include" "*.py" "todo" "src"))
-; ⇒ (xform-ok '("--line-number" "--glob" "*.py" "todo" "src") '())
+; ⇒ (xform-ok rg-cli '("--line-number" "--glob" "*.py" "todo" "src") '())
 ```
 
 Bundled transforms:
@@ -94,3 +103,11 @@ Bundled transforms:
   grep's filename filters merge into rg globs, `--color`/`--colour`
   collapse onto rg's mandatory-value `--color`, and everything rg does
   by default (`-r`, `-I`, `-d`/`-D`) is an explicit drop.
+- `transforms/sed-to-rg.rkt` — `sed->rg`, the `sed -n '/pattern/p'`
+  print-matching-lines idiom onto ripgrep. A `#:when` pattern guard
+  admits only quiet-mode invocations with no `-e`/`-f`/`-i` (anything
+  else is `xform-unmatched`); the script's `/regexp/p` shape is
+  checked at rewrite time by the `script`→`pattern` `#:value`
+  function, which raises — treated as not-rewritable — on any other
+  script, including patterns using BRE-specific escapes that would
+  change meaning under rg's ERE-like engine.

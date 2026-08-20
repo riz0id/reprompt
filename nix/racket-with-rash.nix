@@ -56,8 +56,8 @@ let
   cliSpecTransformSrc = fetchFromGitHub {
     owner = "riz0id";
     repo = "cli-syntax-transformer";
-    rev = "4b125f9512f8b10f814bb884c7ad27c41435882a";
-    hash = "sha256-/J11myYw2+VPI5hby7z9yCEeAQ9B59YRw+XVcd1gq6I=";
+    rev = "abe29c754882ecacf7e287010a8a3404c571169b";
+    hash = "sha256-yz4VarGwB/jiblCnWrPp+lColoFm142Rf9i6U4X9dco=";
   };
 in
 stdenvNoCC.mkDerivation {

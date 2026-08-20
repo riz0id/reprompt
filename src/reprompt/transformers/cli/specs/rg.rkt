@@ -1,10 +1,15 @@
 #lang racket/base
 ;; rg(1), ripgrep -- the flags and options a grep translation or an rg
 ;; rewrite is likely to meet. Unlike grep, --color requires a value.
-;; Operands are one 'many slot: whether the first word is the pattern or a
-;; path depends on -e/-f/--files, a distinction cli-spec's guardless
-;; positionals cannot draw, so a consumer needing it must draw the boundary
-;; over the slot's words itself (rendering is verbatim either way).
+;; Operands are two named slots matching rg's grammar `rg PATTERN
+;; [PATH...]`: 'pattern (required) then 'paths ('*), so transforms map
+;; into each role by name and rendering order follows declaration
+;; order. The pattern slot is required: when -e/-f/--files supplies the
+;; pattern, the first path word fills the slot instead (word order is
+;; preserved, so rendering stays verbatim), and a -e/-f invocation with
+;; no operand words rejects -- a boundary cli-spec's guardless
+;; positionals cannot draw, so only a consumer reading the slots by
+;; name must draw it itself.
 (require (prefix-in cli: cli-spec))
 
 (provide rg-cli)
@@ -45,8 +50,9 @@
      (cli:flag 'vimgrep #:aliases '(--vimgrep))
      (cli:flag 'json #:aliases '(--json))
      (cli:flag 'null #:aliases '(|-0| --null))
+     (cli:flag 'null-data #:aliases '(--null-data))
      (cli:flag 'files #:aliases '(--files))
-     (cli:flag 'pattern 'string #:aliases '(-e --regexp) #:repeat 'list)
+     (cli:flag 'regexp 'string #:aliases '(-e --regexp) #:repeat 'list)
      (cli:flag 'pattern-file 'string #:aliases '(-f --file) #:repeat 'list)
      (cli:flag 'after-context 'string #:aliases '(-A --after-context))
      (cli:flag 'before-context 'string #:aliases '(-B --before-context))
@@ -69,4 +75,5 @@
      (cli:flag 'color (cli:enum "never" "auto" "always" "ansi")
                #:aliases '(--color))
      (cli:flag 'colors 'string #:aliases '(--colors) #:repeat 'list)
-     (cli:arg 'args 'string #:arity '*)))
+     (cli:arg 'pattern 'string)
+     (cli:arg 'paths 'string #:arity '*)))

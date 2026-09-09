@@ -117,7 +117,32 @@
     [(< r 0.94) (values "y/ab/cd/" '())]
     [else (values "2p" '())]))
 
-(define custom-gens (hash 'sed-script gen-sed-script))
+;; The awk program language. Mostly /RE/ print-matching-lines rules (the
+;; shape awk->rg claims, plus its explicit {print} forms), a minority of
+;; other programs so the must-reject shapes stay exercised.
+(define (gen-awk-program g)
+  (define (esc s) (regexp-replace* #rx"/" s "\\\\/"))
+  (define r (random g))
+  (cond
+    [(< r 0.55)
+     (define-values (p w) (cli:random-regex g))
+     (values (format "/~a/" (esc p)) (list w))]
+    [(< r 0.70)
+     (define-values (p w) (cli:random-regex g))
+     (values (format "/~a/ {print}" (esc p)) (list w))]
+    [(< r 0.75)
+     (define-values (p w) (cli:random-regex g))
+     (values (format "/~a/ {print $0}" (esc p)) (list w))]
+    [(< r 0.83)
+     (define-values (p w) (cli:random-regex g))
+     (values (format "/~a/ {print $1}" (esc p)) (list w))]
+    [(< r 0.90) (values "{print}" '())]
+    [(< r 0.95) (values "BEGIN {n=0}" '())]
+    [else (values "{n++} END {print n}" '())]))
+
+(define custom-gens
+  (hash 'sed-script gen-sed-script
+        'awk-program gen-awk-program))
 
 ;; ---------------------------------------------------------------------------
 ;; Effects execution

@@ -102,6 +102,15 @@
           ];
           count = 300;
         };
+        awk = {
+          transform = "cli/transforms/awk-to-rg.rkt";
+          id = "awk->rg";
+          tools = pkgs: [
+            pkgs.gawk
+            pkgs.ripgrep
+          ];
+          count = 300;
+        };
       };
 
       mkFuzzTest =

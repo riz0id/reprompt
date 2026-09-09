@@ -80,6 +80,83 @@ supplies the pattern the first file word fills the required slot
 instead (a boundary guardless positionals cannot draw), but word
 order is preserved either way, so rendering stays verbatim.
 
+## MCP interface specifications (mcp/)
+
+`mcp/` holds declarative specifications of MCP servers' tools, written
+in the in-repo `mcp-spec` language (`mcp/mcp-spec.rkt`). An *operator*
+is a named MCP method with typed, possibly-optional arguments and a
+typed return. Argument types are `cli-spec` types — the same atom
+vocabulary and compound forms the command specs use — and value
+parsing delegates to `cli-spec`'s `type-parse`, so a payload value
+validates exactly when the equivalent command-line token would.
+
+```racket
+(require "mcp-spec.rkt")
+
+(define-mcp read-file
+  #:method "read_file"                        ; wire-level tool name
+  #:returns 'string                           ; default 'string
+  #:doc "Read a file, optionally a line range."
+  (argument 'filepath 'path)
+  (argument 'start-line 'int #:optional? #t)
+  (argument 'end-line 'int #:optional? #t))
+
+(parse-operator-args read-file (hash "filepath" "notes.txt" "start-line" 3))
+; ⇒ (mcp-ok read-file (hash 'filepath #<path:notes.txt> 'start-line 3))
+```
+
+The grammar:
+
+```
+(define-mcp <op-id> <op-option>* <argument>*)
+<op-option>  ::= #:method <string>       ; wire tool name; default: id with - → _
+               | #:returns <type>        ; default 'string
+               | #:doc <string>
+<argument>   ::= (argument '<name> [<type>] <arg-option>*)
+<arg-option> ::= #:optional? <boolean>   ; default #f
+               | #:default <datum>       ; requires #:optional? #t
+               | #:doc <string>
+<type>       ::= '<atom>                 ; string int nat float bool path file dir
+                                         ; glob regex date duration host port url
+               | <cli-type expr>         ; cli:enum / cli:list-of / cli:pair-of
+                                         ; / cli:or-type / cli:custom
+```
+
+Conventions the bundled interfaces follow:
+
+- **One operator per `define-mcp`.** The form binds its name to one
+  `mcp-operator` value; an interface file holds one server's operators
+  and provides each of them.
+  Operator binding names are unique across bundled files (prefix with
+  the server name on collision) — `mcp/all.rkt` re-exports everything
+  plus the `all-mcp-interfaces` list.
+- The wire-level tool name defaults to the operator id with `-`
+  rewritten to `_` (`read-file` → `"read_file"`); `#:method` overrides
+  it.
+- Arguments are name-keyed — an MCP call carries a JSON object, not a
+  token stream — so declaration order carries no parsing semantics and
+  there are no required-after-optional rules.
+- **Types are informative, not just `'string`**, exactly as in the
+  command specs: paths are `'path`/`'dir`, counts are `'int`/`'nat`,
+  vocabularies are `cli:enum`. An argument with no type is `'string`.
+- `#:optional? #t` marks an argument the caller may omit; `#:default`
+  (which requires `#:optional? #t`) binds a value when it is omitted.
+  An omitted optional with no default is simply unbound in the result.
+- `parse-operator-args` interprets a payload (hash or assoc list,
+  symbol or string keys, JSON scalar values) against an operator and
+  answers `mcp-ok` with a hash of typed values or an `mcp-error`
+  (`bad-payload`, `unknown-argument`, `missing-required`,
+  `bad-value`) — never a raise. `mcp-error->string` renders one.
+- Spec mistakes are caught at construction: `operator` runs
+  `check-operator` (duplicate argument names, unknown types, defaults
+  on required arguments) and raises `exn:fail:mcp-spec` with a path
+  into the spec.
+
+`mcp/` holds one bundled interface today: `filesystem.rkt`
+(`read-file`, `list-directory`). Transforms over MCP
+interfaces are out of scope for `mcp/` — `transforms/` maps between
+command specs only.
+
 ## Transforms
 
 `transforms/` holds checked mappings between bundled specs, written in
@@ -126,6 +203,22 @@ Bundled transforms:
   `emit` clause — cli-spec-transform's target-only-constant form):
   sed prints bare matched lines, and rg would otherwise prefix
   `file:` when given several paths.
+- `transforms/awk-to-rg.rkt` — `awk->rg`, the `awk '/pattern/'`
+  print-matching-lines idiom onto ripgrep (also its explicit
+  `{print}` / `{print $0}` forms). A `#:when` guard admits only
+  invocations with no `-f` (the program text must be visible to the
+  shape check) and no `-v` (an assignment can set `RS`/`ORS`/`FS` and
+  change record framing), and requires at least one file operand. Two
+  `#:value` functions raise (not-rewritable) when: the program is not
+  exactly a print-matching-lines rule with an ERE-neutral pattern —
+  awk's ERE shares rg's quantifiers, alternation, and grouping, so
+  the admitted subset is far wider than `sed->rg`'s, with only the
+  divergent tail (letter escapes such as `\d` and `\b`, malformed
+  intervals, mid-pattern anchors) refused; or an operand is not an
+  existing regular file when the rewrite runs — gawk fatally aborts
+  mid-stream on an unopenable operand where rg recurses into
+  directories and skips missing files. Every rewrite carries the
+  `emit`ted `--no-filename`.
 
 ## Differential fuzzing
 
@@ -137,6 +230,7 @@ containing only the two real tools:
 ```
 nix run .#fuzz-test-grep     # grep ~ (grep->rg grep)
 nix run .#fuzz-test-sed      # sed  ~ (sed->rg sed)
+nix run .#fuzz-test-awk      # awk  ~ (awk->rg awk)
 ```
 
 1. **Generate** (host): `tests/fuzz/gen-corpus.rkt` samples random

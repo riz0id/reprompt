@@ -58,3 +58,11 @@ spec-to-spec mappings written in the external
 [`cli-spec-transform`](https://github.com/riz0id/cli-syntax-transformer)
 language (`grep->rg` currently); both collections are vendored into the
 `racket-with-rash` Nix layer.
+
+`cli/mcp/` holds *MCP interface specifications* — declarative
+descriptions of MCP servers' tools (named operators with typed,
+possibly-optional arguments and typed returns) written in the in-repo
+`mcp-spec` language (`cli/mcp/mcp-spec.rkt`), whose argument types and
+value parsing reuse the vendored `cli-spec` type system. Bundled:
+`filesystem`. These describe the `<server>.<tool>(<json>)` targets a
+transformer may retarget onto (above).

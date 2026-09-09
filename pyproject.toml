@@ -22,10 +22,20 @@ packages = ["src/reprompt"]
 # rewrite hook can discover them at run time.
 artifacts = ["*.rkt"]
 
+# The claude-python-fix hook runs a bare `mypy` for edits under src/, relying
+# on this `files` set to cover the whole project.
+[tool.mypy]
+files = ["src"]
+
 # fastmcp is provided by Nix (nixpkgs python3Packages.fastmcp) at run time and
 # is not always importable from the interpreter that runs mypy. The override
 # only applies when the package cannot be found; when fastmcp is on the mypy
 # search path, its real types are used.
 [[tool.mypy.overrides]]
 module = ["fastmcp", "fastmcp.*"]
+ignore_missing_imports = true
+
+# pyyaml is likewise provided by Nix, without the types-PyYAML stubs.
+[[tool.mypy.overrides]]
+module = ["yaml", "yaml.*"]
 ignore_missing_imports = true
